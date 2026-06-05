@@ -18,7 +18,6 @@ Outfits dataset.
 .
 ├── examples/
 │   └── wardrobe.example.json
-├── main.py
 ├── requirements.txt
 ├── scripts/
 │   ├── evaluate.py
@@ -145,16 +144,6 @@ highest-ranked outfits.
 ```bash
 PYTHONPATH=src pytest -q
 ```
-
-## Device Check
-
-Run:
-
-```bash
-python main.py
-```
-
-The program reports the available PyTorch device: CUDA, Apple MPS, or CPU.
 
 ## Dataset Citation
 
