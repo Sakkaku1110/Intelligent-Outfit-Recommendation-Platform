@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "id": "top_001",
+      "name": "White shirt",
+      "category": "tops",
+      "image": "images/top_001.jpg"
+    },
+    {
+      "id": "bottom_001",
+      "name": "Black trousers",
+      "category": "bottoms",
+      "image": "images/bottom_001.jpg"
+    },
+    {
+      "id": "shoes_001",
+      "name": "Leather shoes",
+      "category": "shoes",
+      "image": "images/shoes_001.jpg"
+    }
+  ]
+}

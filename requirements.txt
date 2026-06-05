@@ -2,6 +2,7 @@ numpy
 pandas
 pyarrow
 Pillow
+pytest
 scikit-learn
 torch
 torchvision
