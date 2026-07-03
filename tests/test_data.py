@@ -2,11 +2,14 @@ import json
 from pathlib import Path
 
 import torch
+from PIL import Image
 
 from outfit_recommender.data import (
     build_item_lookup,
+    center_on_white_square,
     collate_outfits,
     load_compatibility_samples,
+    normalize_item_image,
 )
 
 
@@ -85,3 +88,28 @@ def test_sample_limit_balances_labels(tmp_path: Path) -> None:
     )
 
     assert {sample.label for sample in samples} == {0.0, 1.0}
+
+
+def test_normalize_item_image_crops_subject_to_white_square() -> None:
+    image = Image.new("RGB", (100, 80), (40, 40, 40))
+    for x in range(30, 70):
+        for y in range(20, 60):
+            image.putpixel((x, y), (220, 30, 30))
+
+    normalized = normalize_item_image(image, padding_ratio=0.0)
+
+    assert normalized.size == (40, 40)
+    assert normalized.getpixel((20, 20)) == (220, 30, 30)
+
+
+def test_center_on_white_square_uses_alpha_mask() -> None:
+    image = Image.new("RGBA", (80, 60), (0, 0, 0, 0))
+    for x in range(20, 50):
+        for y in range(10, 50):
+            image.putpixel((x, y), (30, 120, 220, 255))
+
+    normalized = center_on_white_square(image, padding_ratio=0.0)
+
+    assert normalized.mode == "RGB"
+    assert normalized.size == (40, 40)
+    assert normalized.getpixel((15, 20)) == (30, 120, 220)

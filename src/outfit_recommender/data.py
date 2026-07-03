@@ -1,8 +1,12 @@
 import json
+import os
+import warnings
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
+import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
@@ -15,6 +19,20 @@ from .constants import CATEGORY_TO_INDEX
 class CompatibilitySample:
     label: float
     item_ids: tuple[str, ...]
+
+
+ImagePreprocessMode = Literal["none", "simple", "segmentation", "auto"]
+SegmentationModel = Literal["u2netp", "u2net"]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def ensure_preprocess_cache_dirs() -> None:
+    numba_cache_dir = PROJECT_ROOT / ".cache" / "numba"
+    u2net_home = PROJECT_ROOT / ".cache" / "u2net"
+    numba_cache_dir.mkdir(parents=True, exist_ok=True)
+    u2net_home.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("NUMBA_CACHE_DIR", str(numba_cache_dir))
+    os.environ.setdefault("U2NET_HOME", str(u2net_home))
 
 
 def build_item_lookup(outfits_path: Path) -> dict[str, str]:
@@ -65,10 +83,146 @@ def load_compatibility_samples(
     return samples
 
 
-def default_image_transform(image_size: int = 224, training: bool = False):
-    operations: list[Callable] = [
-        transforms.Resize((image_size, image_size)),
-    ]
+def center_on_white_square(
+    image: Image.Image,
+    mask: np.ndarray | None = None,
+    padding_ratio: float = 0.12,
+) -> Image.Image:
+    image = image.convert("RGBA")
+    if mask is None:
+        mask = np.asarray(image.getchannel("A")) > 10
+    foreground_ratio = mask.mean()
+    if foreground_ratio < 0.01 or foreground_ratio > 0.95:
+        return image.convert("RGB")
+
+    rows, columns = np.where(mask)
+    left, right = columns.min(), columns.max() + 1
+    top, bottom = rows.min(), rows.max() + 1
+    box_width = right - left
+    box_height = bottom - top
+    padding = int(max(box_width, box_height) * padding_ratio)
+    left = max(left - padding, 0)
+    top = max(top - padding, 0)
+    right = min(right + padding, image.width)
+    bottom = min(bottom + padding, image.height)
+
+    cropped = image.crop((left, top, right, bottom))
+    canvas_size = max(cropped.size)
+    transparent_canvas = Image.new(
+        "RGBA", (canvas_size, canvas_size), (255, 255, 255, 0)
+    )
+    offset = (
+        (canvas_size - cropped.width) // 2,
+        (canvas_size - cropped.height) // 2,
+    )
+    transparent_canvas.paste(cropped, offset, cropped.getchannel("A"))
+    white_canvas = Image.new("RGB", transparent_canvas.size, (255, 255, 255))
+    white_canvas.paste(transparent_canvas, mask=transparent_canvas.getchannel("A"))
+    return white_canvas
+
+
+def normalize_item_image(
+    image: Image.Image,
+    padding_ratio: float = 0.12,
+    background_threshold: float = 30.0,
+) -> Image.Image:
+    image = image.convert("RGB")
+    pixels = np.asarray(image, dtype=np.int16)
+    border_pixels = np.concatenate(
+        (
+            pixels[0, :, :],
+            pixels[-1, :, :],
+            pixels[:, 0, :],
+            pixels[:, -1, :],
+        ),
+        axis=0,
+    )
+    background_color = np.median(border_pixels, axis=0)
+    color_distance = np.linalg.norm(pixels - background_color, axis=2)
+    foreground_mask = color_distance > background_threshold
+    return center_on_white_square(image, foreground_mask, padding_ratio)
+
+
+def remove_item_background(
+    image: Image.Image,
+    session=None,
+    padding_ratio: float = 0.12,
+) -> Image.Image:
+    ensure_preprocess_cache_dirs()
+    try:
+        from rembg import remove
+    except ImportError as error:
+        raise RuntimeError(
+            "Image segmentation preprocessing requires rembg. "
+            "Install dependencies with: pip install -r requirements.txt"
+        ) from error
+
+    result = remove(image.convert("RGB"), session=session)
+    if isinstance(result, bytes):
+        result = Image.open(BytesIO(result))
+    return center_on_white_square(result.convert("RGBA"), padding_ratio=padding_ratio)
+
+
+class ItemImagePreprocessor:
+    def __init__(
+        self,
+        mode: ImagePreprocessMode,
+        segmentation_model: SegmentationModel = "u2netp",
+    ) -> None:
+        self.mode = mode
+        self.segmentation_model = segmentation_model
+        self._session = None
+        self._segmentation_failed = False
+
+    def __call__(self, image: Image.Image) -> Image.Image:
+        image = image.convert("RGB")
+        if self.mode == "none":
+            return image
+        if self.mode == "simple":
+            return normalize_item_image(image)
+        if self.mode == "auto" and self._segmentation_failed:
+            return normalize_item_image(image)
+
+        try:
+            ensure_preprocess_cache_dirs()
+            if self._session is None:
+                try:
+                    from rembg import new_session
+                except ImportError as error:
+                    raise RuntimeError(
+                        "Image segmentation preprocessing requires rembg. "
+                        "Install dependencies with: pip install -r requirements.txt"
+                    ) from error
+
+                self._session = new_session(self.segmentation_model)
+            return remove_item_background(image, session=self._session)
+        except Exception as error:
+            if self.mode == "auto":
+                self._segmentation_failed = True
+                warnings.warn(
+                    "Segmentation preprocessing is unavailable; falling back "
+                    "to simple image cropping. Install rembg and allow its "
+                    "model download to enable model-based background removal.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                return normalize_item_image(image)
+            raise
+
+
+def default_image_transform(
+    image_size: int = 224,
+    training: bool = False,
+    preprocess: bool = False,
+    preprocess_mode: ImagePreprocessMode | None = None,
+    segmentation_model: SegmentationModel = "u2netp",
+):
+    operations: list[Callable] = []
+    if preprocess_mode is None:
+        preprocess_mode = "simple" if preprocess else "none"
+    if preprocess_mode != "none":
+        operations.append(ItemImagePreprocessor(preprocess_mode, segmentation_model))
+    operations.append(transforms.Resize((image_size, image_size)))
     if training:
         operations.extend(
             [

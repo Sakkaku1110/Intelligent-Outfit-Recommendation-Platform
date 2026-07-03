@@ -28,6 +28,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-candidates", type=int, default=5000)
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--device", default="auto")
+    parser.add_argument(
+        "--preprocess-mode",
+        choices=("segmentation", "auto", "simple", "none"),
+        default="auto",
+        help=(
+            "Image preprocessing mode. auto uses rembg segmentation when "
+            "available and falls back to simple cropping, segmentation "
+            "requires rembg, simple uses border-color cropping, and none "
+            "disables preprocessing."
+        ),
+    )
+    parser.add_argument(
+        "--segmentation-model",
+        choices=("u2netp", "u2net"),
+        default="u2netp",
+        help=(
+            "rembg segmentation model. u2netp is smaller and faster; "
+            "u2net is larger and usually more accurate."
+        ),
+    )
+    parser.add_argument(
+        "--no-preprocess-images",
+        action="store_true",
+        help="Deprecated alias for --preprocess-mode none.",
+    )
     return parser.parse_args()
 
 
@@ -88,8 +113,14 @@ def score_candidates(
     device: torch.device,
     image_size: int,
     batch_size: int,
+    preprocess_mode: str,
+    segmentation_model: str,
 ) -> list[tuple[float, tuple[dict, ...]]]:
-    transform = default_image_transform(image_size)
+    transform = default_image_transform(
+        image_size,
+        preprocess_mode=preprocess_mode,
+        segmentation_model=segmentation_model,
+    )
     image_cache = {}
     results = []
 
@@ -129,6 +160,7 @@ def score_candidates(
 def main() -> None:
     args = parse_args()
     device = get_device(args.device)
+    preprocess_mode = "none" if args.no_preprocess_images else args.preprocess_mode
     checkpoint = torch.load(args.checkpoint, map_location=device)
     model = OutfitCompatibilityModel(**checkpoint["model_config"]).to(device)
     model.load_state_dict(checkpoint["model_state"])
@@ -143,7 +175,13 @@ def main() -> None:
         )
     ranked = sorted(
         score_candidates(
-            candidates, model, device, args.image_size, args.batch_size
+            candidates,
+            model,
+            device,
+            args.image_size,
+            args.batch_size,
+            preprocess_mode,
+            args.segmentation_model,
         ),
         key=lambda result: result[0],
         reverse=True,
@@ -157,4 +195,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

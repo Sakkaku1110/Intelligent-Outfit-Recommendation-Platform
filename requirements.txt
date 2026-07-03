@@ -7,3 +7,4 @@ scikit-learn
 torch
 torchvision
 tqdm
+rembg[cpu]
