@@ -2,21 +2,94 @@
   "items": [
     {
       "id": "top_001",
-      "name": "White shirt",
+      "name": "White cotton shirt",
       "category": "tops",
-      "image": "images/top_001.jpg"
+      "image": "images/top_001.jpg",
+      "styles": ["formal", "business", "commute"],
+      "thickness": 2,
+      "material": "cotton",
+      "color": "white",
+      "in_stock": true,
+      "days_since_wash": 1,
+      "days_in_stock": 6
+    },
+    {
+      "id": "top_002",
+      "name": "Grey casual hoodie",
+      "category": "tops",
+      "image": "images/top_002.jpg",
+      "styles": ["casual", "outdoor"],
+      "thickness": 4,
+      "material": "fleece",
+      "color": "grey",
+      "in_stock": true,
+      "days_since_wash": 3,
+      "days_in_stock": 18
     },
     {
       "id": "bottom_001",
       "name": "Black trousers",
       "category": "bottoms",
-      "image": "images/bottom_001.jpg"
+      "image": "images/bottom_001.jpg",
+      "styles": ["formal", "business", "commute"],
+      "thickness": 3,
+      "material": "polyester",
+      "color": "black",
+      "in_stock": true,
+      "days_since_wash": 2,
+      "days_in_stock": 9
+    },
+    {
+      "id": "bottom_002",
+      "name": "Blue jeans",
+      "category": "bottoms",
+      "image": "images/bottom_002.jpg",
+      "styles": ["casual", "outdoor"],
+      "thickness": 3,
+      "material": "cotton",
+      "color": "blue",
+      "in_stock": true,
+      "days_since_wash": 5,
+      "days_in_stock": 22
+    },
+    {
+      "id": "outer_001",
+      "name": "Navy waterproof jacket",
+      "category": "outerwear",
+      "image": "images/outer_001.jpg",
+      "styles": ["commute", "outdoor", "casual"],
+      "thickness": 4,
+      "material": "waterproof",
+      "color": "navy",
+      "in_stock": true,
+      "days_since_wash": 2,
+      "days_in_stock": 15
     },
     {
       "id": "shoes_001",
-      "name": "Leather shoes",
+      "name": "Black leather shoes",
       "category": "shoes",
-      "image": "images/shoes_001.jpg"
+      "image": "images/shoes_001.jpg",
+      "styles": ["formal", "business", "commute"],
+      "thickness": 2,
+      "material": "leather",
+      "color": "black",
+      "in_stock": true,
+      "days_since_wash": 1,
+      "days_in_stock": 7
+    },
+    {
+      "id": "shoes_002",
+      "name": "White sneakers",
+      "category": "shoes",
+      "image": "images/shoes_002.jpg",
+      "styles": ["casual", "sport"],
+      "thickness": 2,
+      "material": "canvas",
+      "color": "white",
+      "in_stock": false,
+      "days_since_wash": 0,
+      "days_in_stock": 0
     }
   ]
 }

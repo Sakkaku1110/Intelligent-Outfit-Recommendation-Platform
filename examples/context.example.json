@@ -1,0 +1,11 @@
+{
+  "weather": {
+    "city": "Shanghai",
+    "temperature_c": 18,
+    "humidity": 72,
+    "condition": "cloudy"
+  },
+  "user_request": {
+    "occasion": "business"
+  }
+}

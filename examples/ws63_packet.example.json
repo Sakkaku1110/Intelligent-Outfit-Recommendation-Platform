@@ -1,0 +1,19 @@
+{
+  "source": "ws63",
+  "event": "spectral_reading",
+  "payload": {
+    "item_id": "top_001",
+    "sensor": "GY-AS7341",
+    "channels": {
+      "f1": 120,
+      "f2": 138,
+      "f3": 141,
+      "f4": 150,
+      "f5": 164,
+      "f6": 155,
+      "f7": 146,
+      "f8": 130
+    },
+    "nir": 62
+  }
+}
