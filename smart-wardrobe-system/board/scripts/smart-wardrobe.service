@@ -1,0 +1,17 @@
+[Unit]
+Description=Smart Wardrobe SS928 backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/workspace/smart-wardrobe
+Environment=PYTHONUNBUFFERED=1
+Environment=SMART_WARDROBE_PORT=8000
+Environment=SMART_WARDROBE_ALSO_PORT=80
+ExecStart=/bin/bash /root/workspace/smart-wardrobe/scripts/run_server.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

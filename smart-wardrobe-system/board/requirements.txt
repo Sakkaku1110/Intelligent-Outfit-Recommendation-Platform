@@ -1,0 +1,4 @@
+# The HTTP backend uses Python standard library only.
+# Image recognition uses the board's apt OpenCV package.
+# Linux runtime tools on the board:
+#   apt-get install -y python3-opencv fswebcam v4l-utils usbutils

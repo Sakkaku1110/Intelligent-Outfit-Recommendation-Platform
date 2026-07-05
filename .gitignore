@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+~$*
+.pytest_cache/
+
+# Generated board/runtime data
+smart-wardrobe-system/board/data/
+smart-wardrobe-system/vision_lab/demo_dataset/
+smart-wardrobe-system/vision_lab/samples/
+smart-wardrobe-system/vision_lab/samples_augmented/
+smart-wardrobe-system/vision_lab/tmp_train_check/
+
+# Local screenshots and temporary captures
+*.png
+*.jpg
+*.jpeg
+*.mjpeg

@@ -1,0 +1,92 @@
+{
+  "items": [
+    {
+      "id": "top_white_cotton",
+      "name": "白色上衣",
+      "category": "top",
+      "color": "white",
+      "color_label": "白色",
+      "material": "cotton",
+      "warmth": 2,
+      "season": "summer_light,spring_autumn",
+      "occasion": "school,casual,commute"
+    },
+    {
+      "id": "top_red_cotton",
+      "name": "红色上衣",
+      "category": "top",
+      "color": "red",
+      "color_label": "红色",
+      "material": "cotton",
+      "warmth": 2,
+      "season": "summer_light,spring_autumn",
+      "occasion": "casual,date,school"
+    },
+    {
+      "id": "top_blue_cotton",
+      "name": "蓝色上衣",
+      "category": "top",
+      "color": "blue",
+      "color_label": "蓝色",
+      "material": "cotton",
+      "warmth": 2,
+      "season": "summer_light,spring_autumn",
+      "occasion": "school,commute,casual"
+    },
+    {
+      "id": "bottom_black_pants",
+      "name": "黑色长裤",
+      "category": "bottom",
+      "color": "black",
+      "color_label": "黑色",
+      "material": "cotton",
+      "warmth": 3,
+      "season": "summer_light,spring_autumn,winter",
+      "occasion": "school,commute,casual,formal"
+    },
+    {
+      "id": "bottom_beige_pants",
+      "name": "卡其长裤",
+      "category": "bottom",
+      "color": "beige",
+      "color_label": "米色",
+      "material": "cotton",
+      "warmth": 3,
+      "season": "summer_light,spring_autumn",
+      "occasion": "school,commute,casual"
+    },
+    {
+      "id": "outer_gray_jacket",
+      "name": "灰色外套",
+      "category": "outer",
+      "color": "gray",
+      "color_label": "灰色",
+      "material": "polyester",
+      "warmth": 3,
+      "season": "spring_autumn,winter",
+      "occasion": "school,commute,casual"
+    },
+    {
+      "id": "shoes_white_sneaker",
+      "name": "白色运动鞋",
+      "category": "shoes",
+      "color": "white",
+      "color_label": "白色",
+      "material": "polyester",
+      "warmth": 1,
+      "season": "summer_light,spring_autumn,winter",
+      "occasion": "school,casual,sport,commute"
+    },
+    {
+      "id": "shoes_black_sneaker",
+      "name": "黑色鞋",
+      "category": "shoes",
+      "color": "black",
+      "color_label": "黑色",
+      "material": "leather",
+      "warmth": 1,
+      "season": "summer_light,spring_autumn,winter",
+      "occasion": "commute,formal,school,casual"
+    }
+  ]
+}

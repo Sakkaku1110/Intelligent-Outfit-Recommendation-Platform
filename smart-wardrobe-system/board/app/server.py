@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""HTTP API server for the SS928 smart wardrobe MVP."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import mimetypes
+import os
+import pathlib
+import platform
+import socket
+import threading
+import time
+import urllib.parse
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any, Dict, Optional
+
+from .core import (
+    Camera,
+    ImageAnalyzer,
+    RecommendationEngine,
+    WardrobeDB,
+    WeatherClient,
+    crop_viewfinder_image,
+    merge_analysis_into_payload,
+    save_ws63_payload,
+)
+
+
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+DATA_ROOT = PROJECT_ROOT / "data"
+UPLOAD_ROOT = DATA_ROOT / "uploads"
+MOBILE_ROOT = PROJECT_ROOT / "mobile-app"
+
+
+class SmartWardrobeHandler(BaseHTTPRequestHandler):
+    db: WardrobeDB
+    weather: WeatherClient
+    camera: Camera
+    analyzer: ImageAnalyzer
+    recommender: RecommendationEngine
+
+    server_version = "SmartWardrobeHTTP/1.0"
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        print("[%s] %s" % (self.log_date_time_string(), fmt % args))
+
+    def end_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+        super().end_headers()
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.end_headers()
+
+    def do_HEAD(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        if path == "/api/health":
+            body = json.dumps(self.health_payload(), ensure_ascii=False).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return
+        if path in {"", "/"}:
+            file_path = MOBILE_ROOT / "index.html"
+        elif path.startswith("/uploads/"):
+            file_path = UPLOAD_ROOT / path.removeprefix("/uploads/")
+        else:
+            file_path = MOBILE_ROOT / path.lstrip("/")
+        self.send_file_headers(file_path)
+
+    def do_GET(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
+        try:
+            if path == "/api/health":
+                self.send_json(self.health_payload())
+            elif path == "/api/clothes":
+                self.send_json({"items": self.db.list_clothes(), "count": self.db.count()})
+            elif path == "/api/camera/stream":
+                self.serve_camera_stream()
+            elif path in {"/api/recommend", "/api/recommendations"}:
+                city = query.get("city", [os.environ.get("SMART_WARDROBE_CITY", "Hangzhou")])[0]
+                occasion = query.get("occasion", ["school"])[0]
+                weather = self.weather.current_weather(city)
+                result = self.recommender.recommend(
+                    self.db.list_clothes(), weather, occasion=occasion, limit=3
+                )
+                self.send_json(result)
+            elif path.startswith("/uploads/"):
+                self.serve_file(UPLOAD_ROOT / path.removeprefix("/uploads/"))
+            else:
+                self.serve_mobile(path)
+        except Exception as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def do_POST(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        try:
+            if path == "/api/clothes":
+                payload = self.read_json()
+                item = self.db.add_clothing(payload)
+                self.send_json({"item": item}, HTTPStatus.CREATED)
+            elif path == "/api/clothes/capture":
+                payload = self.read_json()
+                use_viewfinder = bool(payload.pop("use_viewfinder", True))
+                capture = self.camera.capture(
+                    resolution=str(payload.pop("resolution", "640x480")),
+                    skip_frames=int(payload.pop("skip_frames", 10)),
+                )
+                if use_viewfinder:
+                    capture = self.apply_viewfinder_crop(capture)
+                payload.update(capture)
+                if bool(payload.pop("auto_analyze", True)):
+                    analysis = self.analyzer.analyze(
+                        capture["image_path"], focus_viewfinder=False
+                    )
+                    payload = merge_analysis_into_payload(payload, analysis)
+                item = self.db.add_clothing(payload)
+                self.send_json(
+                    {"item": item, "capture": capture, "analysis": item.get("ai_analysis", {})},
+                    HTTPStatus.CREATED,
+                )
+            elif path == "/api/clothes/capture/analyze":
+                payload = self.read_json(allow_empty=True)
+                use_viewfinder = bool(payload.pop("use_viewfinder", True))
+                capture = self.camera.capture(
+                    resolution=str(payload.pop("resolution", "640x480")),
+                    skip_frames=int(payload.pop("skip_frames", 10)),
+                )
+                if use_viewfinder:
+                    capture = self.apply_viewfinder_crop(capture)
+                analysis = self.analyzer.analyze(
+                    capture["image_path"], focus_viewfinder=False
+                )
+                payload.update(capture)
+                draft = merge_analysis_into_payload(payload, analysis)
+                self.send_json({"draft": draft, "capture": capture, "analysis": analysis})
+            elif path == "/api/demo/seed":
+                payload = self.read_json(allow_empty=True)
+                count = self.db.seed_demo_items(force=bool(payload.get("force", False)))
+                self.send_json({"seeded": count, "count": self.db.count()})
+            elif path == "/api/ws63/sensor":
+                payload = self.read_json()
+                saved = save_ws63_payload(DATA_ROOT / "ws63_latest.json", payload)
+                self.send_json({"sensor": saved})
+            else:
+                self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        except Exception as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def apply_viewfinder_crop(self, capture: Dict[str, Any]) -> Dict[str, Any]:
+        cropped = crop_viewfinder_image(capture["image_path"], UPLOAD_ROOT)
+        if not cropped:
+            return capture
+        updated = dict(capture)
+        updated["raw_image_path"] = capture.get("image_path", "")
+        updated["raw_image_url"] = capture.get("image_url", "")
+        updated.update(cropped)
+        updated["crop_applied"] = True
+        return updated
+
+    def do_PUT(self) -> None:
+        path = urllib.parse.urlparse(self.path).path
+        if not path.startswith("/api/clothes/"):
+            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            return
+        try:
+            item_id = int(path.rsplit("/", 1)[-1])
+            item = self.db.update_clothing(item_id, self.read_json())
+            if not item:
+                self.send_json({"error": "clothing not found"}, HTTPStatus.NOT_FOUND)
+                return
+            self.send_json({"item": item})
+        except Exception as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def do_DELETE(self) -> None:
+        path = urllib.parse.urlparse(self.path).path
+        if not path.startswith("/api/clothes/"):
+            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            return
+        try:
+            item_id = int(path.rsplit("/", 1)[-1])
+            deleted = self.db.delete_clothing(item_id)
+            self.send_json({"deleted": deleted}, HTTPStatus.OK if deleted else HTTPStatus.NOT_FOUND)
+        except Exception as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def read_json(self, allow_empty: bool = False) -> Dict[str, Any]:
+        length = int(self.headers.get("Content-Length") or "0")
+        if length == 0:
+            if allow_empty:
+                return {}
+            raise ValueError("empty request body")
+        body = self.rfile.read(length)
+        if not body.strip() and allow_empty:
+            return {}
+        return json.loads(body.decode("utf-8"))
+
+    def send_json(self, payload: Dict[str, Any], status: int = HTTPStatus.OK) -> None:
+        body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def serve_mobile(self, path: str) -> None:
+        if path in {"", "/"}:
+            file_path = MOBILE_ROOT / "index.html"
+        else:
+            file_path = MOBILE_ROOT / path.lstrip("/")
+        self.serve_file(file_path, root=MOBILE_ROOT)
+
+    def serve_file(self, file_path: pathlib.Path, root: Optional[pathlib.Path] = None) -> None:
+        file_path = file_path.resolve()
+        root = (root or UPLOAD_ROOT).resolve()
+        if root not in file_path.parents and file_path != root:
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+        if not file_path.exists() or not file_path.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        body = file_path.read_bytes()
+        content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def serve_camera_stream(self) -> None:
+        boundary = "smartwardrobe"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=%s" % boundary)
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.end_headers()
+        while True:
+            jpeg = self.camera.latest_jpeg(max_age=5.0)
+            if not jpeg:
+                time.sleep(0.15)
+                continue
+            try:
+                self.wfile.write(("--%s\r\n" % boundary).encode("ascii"))
+                self.wfile.write(b"Content-Type: image/jpeg\r\n")
+                self.wfile.write(("Content-Length: %d\r\n\r\n" % len(jpeg)).encode("ascii"))
+                self.wfile.write(jpeg)
+                self.wfile.write(b"\r\n")
+                self.wfile.flush()
+                time.sleep(0.16)
+            except (BrokenPipeError, ConnectionResetError):
+                break
+
+    def send_file_headers(self, file_path: pathlib.Path, root: Optional[pathlib.Path] = None) -> None:
+        file_path = file_path.resolve()
+        root = (root or (UPLOAD_ROOT if str(file_path).startswith(str(UPLOAD_ROOT.resolve())) else MOBILE_ROOT)).resolve()
+        if root not in file_path.parents and file_path != root:
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+        if not file_path.exists() or not file_path.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(file_path.stat().st_size))
+        self.end_headers()
+
+    def health_payload(self) -> Dict[str, Any]:
+        return {
+            "status": "ok",
+            "hostname": socket.gethostname(),
+            "python": platform.python_version(),
+            "machine": platform.machine(),
+            "db_path": str(self.db.db_path),
+            "clothes_count": self.db.count(),
+            "camera": {
+                "device": self.camera.device,
+                "available": self.camera.available(),
+                "live": bool(self.camera.latest_jpeg(max_age=5.0)),
+                "stream_error": self.camera.stream_error(),
+            },
+            "vision": {
+                "opencv_required": True,
+                "mode": "rule_based_mvp",
+            },
+        }
+
+
+def make_handler(db_path: pathlib.Path, camera_device: str) -> type[SmartWardrobeHandler]:
+    SmartWardrobeHandler.db = WardrobeDB(db_path)
+    SmartWardrobeHandler.weather = WeatherClient(DATA_ROOT / "weather_cache.json")
+    SmartWardrobeHandler.camera = Camera(UPLOAD_ROOT, device=camera_device)
+    SmartWardrobeHandler.camera.start_live()
+    SmartWardrobeHandler.analyzer = ImageAnalyzer()
+    SmartWardrobeHandler.recommender = RecommendationEngine()
+    return SmartWardrobeHandler
+
+
+def serve_forever(httpd: ThreadingHTTPServer, label: str) -> None:
+    print("Smart wardrobe server listening on %s" % label, flush=True)
+    httpd.serve_forever()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("SMART_WARDROBE_PORT", "8000")))
+    parser.add_argument("--also-port", type=int, default=0)
+    parser.add_argument("--db", default=os.environ.get("SMART_WARDROBE_DB", str(DATA_ROOT / "wardrobe.db")))
+    parser.add_argument("--camera", default=os.environ.get("SMART_WARDROBE_CAMERA", "/dev/video0"))
+    parser.add_argument("--seed", action="store_true", help="Insert demo clothes if the database is empty.")
+    args = parser.parse_args()
+
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    handler = make_handler(pathlib.Path(args.db), args.camera)
+    if args.seed:
+        count = handler.db.seed_demo_items(force=False)
+        if count:
+            print("Seeded %d demo clothes." % count)
+    httpd = ThreadingHTTPServer((args.host, args.port), handler)
+    servers = [(httpd, "http://%s:%d" % (args.host, args.port))]
+    if args.also_port and args.also_port != args.port:
+        also = ThreadingHTTPServer((args.host, args.also_port), handler)
+        servers.append((also, "http://%s:%d" % (args.host, args.also_port)))
+    print("Open from PC/tablet: http://192.168.137.2:%d" % args.port, flush=True)
+    if args.also_port:
+        print("Tablet-friendly URL: http://192.168.137.2", flush=True)
+    threads = []
+    for server, label in servers[1:]:
+        thread = threading.Thread(target=serve_forever, args=(server, label), daemon=True)
+        thread.start()
+        threads.append(thread)
+    serve_forever(servers[0][0], servers[0][1])
+
+
+if __name__ == "__main__":
+    main()

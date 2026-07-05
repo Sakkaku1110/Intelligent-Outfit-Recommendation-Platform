@@ -1,0 +1,10 @@
+{
+  "name": "智能衣柜",
+  "short_name": "智能衣柜",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121417",
+  "theme_color": "#121417",
+  "icons": []
+}
+
