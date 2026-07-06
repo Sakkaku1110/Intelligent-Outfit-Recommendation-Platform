@@ -14,6 +14,7 @@ import os
 import pathlib
 import re
 import shutil
+import socket
 import sqlite3
 import subprocess
 import threading
@@ -216,6 +217,7 @@ class CloudPreprocessor:
         self.upload_dir = pathlib.Path(upload_dir)
         self.provider = os.environ.get("SMART_WARDROBE_CLOUD_PROVIDER", "gemini").strip().lower()
         self.model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        self.proxy_url = os.environ.get("SMART_WARDROBE_CLOUD_PROXY_URL", "").strip()
         self.api_key = (
             os.environ.get("GEMINI_API_KEY")
             or os.environ.get("GOOGLE_API_KEY")
@@ -229,11 +231,12 @@ class CloudPreprocessor:
             "provider": self.provider,
             "model": self.model,
             "configured": self.configured(),
+            "proxy_url": self.proxy_url,
             "purpose": "subject_bbox_crop",
         }
 
     def configured(self) -> bool:
-        return self.provider == "gemini" and bool(self.api_key)
+        return self.provider == "gemini" and (bool(self.api_key) or bool(self.proxy_url))
 
     def preprocess(self, image_path: str, image_url: str = "") -> Dict[str, Any]:
         if not self.configured():
@@ -245,6 +248,8 @@ class CloudPreprocessor:
                 "message": "Set GEMINI_API_KEY to enable cloud subject extraction.",
             }
         try:
+            if self.proxy_url:
+                return self._preprocess_with_proxy(pathlib.Path(image_path), image_url)
             return self._preprocess_with_gemini(pathlib.Path(image_path), image_url)
         except Exception as exc:
             return {
@@ -255,6 +260,45 @@ class CloudPreprocessor:
                 "reason": "cloud_error",
                 "message": str(exc)[:500],
             }
+
+    def _preprocess_with_proxy(self, image_path: pathlib.Path, image_url: str) -> Dict[str, Any]:
+        if not image_path.exists():
+            raise FileNotFoundError(str(image_path))
+        mime_type = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
+        body = {
+            "mime_type": mime_type,
+            "image_data": base64.b64encode(image_path.read_bytes()).decode("ascii"),
+            "model": self.model,
+        }
+        request = urllib.request.Request(
+            self.proxy_url,
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self._urlopen_ipv4(request, timeout=self.timeout) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        if not result.get("ok"):
+            raise RuntimeError(str(result.get("message") or result.get("reason") or "cloud proxy failed"))
+        box = self._normalized_box(result.get("normalized_box") or result.get("box_2d"))
+        crop = self._crop_to_box(image_path, box)
+        crop.update(
+            {
+                "ok": True,
+                "used": True,
+                "provider": str(result.get("provider") or "gemini_proxy"),
+                "model": str(result.get("model") or self.model),
+                "source_image_path": str(image_path),
+                "source_image_url": image_url,
+                "label": str(result.get("label") or "garment"),
+                "confidence": float(result.get("confidence") or 0),
+                "quality": str(result.get("quality") or "ok"),
+                "reason": str(result.get("reason") or "")[:240],
+                "normalized_box": box,
+                "via_proxy": True,
+            }
+        )
+        return crop
 
     def _preprocess_with_gemini(self, image_path: pathlib.Path, image_url: str) -> Dict[str, Any]:
         if not image_path.exists():
@@ -300,7 +344,7 @@ class CloudPreprocessor:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with self._urlopen_ipv4(request, timeout=self.timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
         text = self._gemini_text(payload)
         result = self._parse_json_object(text)
@@ -322,6 +366,20 @@ class CloudPreprocessor:
             }
         )
         return crop
+
+    def _urlopen_ipv4(self, request: urllib.request.Request, timeout: float) -> Any:
+        original_getaddrinfo = socket.getaddrinfo
+
+        def getaddrinfo_ipv4(*args: Any, **kwargs: Any) -> Any:
+            infos = original_getaddrinfo(*args, **kwargs)
+            ipv4_infos = [info for info in infos if info[0] == socket.AF_INET]
+            return ipv4_infos or infos
+
+        socket.getaddrinfo = getaddrinfo_ipv4  # type: ignore[assignment]
+        try:
+            return urllib.request.urlopen(request, timeout=timeout)
+        finally:
+            socket.getaddrinfo = original_getaddrinfo  # type: ignore[assignment]
 
     def _gemini_text(self, payload: Dict[str, Any]) -> str:
         candidates = payload.get("candidates") or []

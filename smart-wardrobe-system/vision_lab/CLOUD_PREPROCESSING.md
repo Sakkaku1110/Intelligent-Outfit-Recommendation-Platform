@@ -24,6 +24,14 @@ $env:GEMINI_API_KEY="你的 key"
 $env:GEMINI_MODEL="gemini-2.5-flash"
 ```
 
+验证 key 是否能用：
+
+```powershell
+python smart-wardrobe-system\vision_lab\test_gemini_key.py
+```
+
+如果返回 `HTTP 401`，说明这枚 key 不能调用 Gemini。通常需要重新从 Google AI Studio 生成 Gemini API key，或在 Google Cloud 项目中启用 Generative Language API，并检查 key 的 API 限制和来源限制。
+
 ## 主链路
 
 ```text
@@ -40,6 +48,37 @@ $env:GEMINI_MODEL="gemini-2.5-flash"
 
 ```text
 板子摄像头原图 -> 取景框裁剪 -> 板端边缘模型识别 -> 人工审核
+```
+
+## 电脑代理模式
+
+如果板子能 ping 外网，但无法直接 HTTPS 访问 Google，可以让电脑作为云端代理。电脑访问 Gemini，板子只访问电脑。
+
+电脑启动网关：
+
+```powershell
+$env:GEMINI_API_KEY="你的 key"
+$env:GEMINI_MODEL="gemini-2.5-flash"
+python smart-wardrobe-system\pc_gateway.py --host 0.0.0.0 --port 8088 --board http://192.168.137.2
+```
+
+板子 `/root/workspace/smart-wardrobe/.env` 增加：
+
+```bash
+SMART_WARDROBE_CLOUD_PROXY_URL=http://192.168.137.1:8088/__cloud/preprocess
+```
+
+然后重启板端服务：
+
+```bash
+systemctl restart smart-wardrobe.service
+```
+
+检查：
+
+```powershell
+curl.exe http://127.0.0.1:8088/__gateway
+curl.exe http://192.168.137.2/api/vision/cloud/status
 ```
 
 ## 为什么不让云端直接做最终分类
