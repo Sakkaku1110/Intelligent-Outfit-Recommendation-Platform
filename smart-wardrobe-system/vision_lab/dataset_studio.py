@@ -215,7 +215,10 @@ HTML = r"""<!doctype html>
     }
 
     function labelOption(item) {
-      return `<option value="${item.id}">${item.name} / ${item.color_label || item.color} / ${item.category}</option>`;
+      const category = item.category_label || item.category;
+      const color = item.color_label || item.color;
+      const material = item.material_label || item.material;
+      return `<option value="${item.id}">${item.name} / ${category} / ${color} / ${material}</option>`;
     }
 
     function setStatus(message) {
@@ -259,7 +262,7 @@ HTML = r"""<!doctype html>
           <div class="sample-body">
             <div>
               <div class="sample-title">${sample.name}</div>
-              <div class="sample-meta">${sample.color} / ${sample.category} / ${sample.material}</div>
+              <div class="sample-meta">${sample.category_label || sample.category} / ${sample.color_label || sample.color} / ${sample.material_label || sample.material}</div>
             </div>
             <div class="sample-actions">
               <button class="ghost editSample" type="button" data-id="${sample.sample_id}">修改</button>
@@ -584,6 +587,9 @@ class DatasetStudioHandler(BaseHTTPRequestHandler):
             entry["category"] = row.get("category") or item.get("category", "")
             entry["color"] = row.get("color") or item.get("color", "")
             entry["material"] = row.get("material") or item.get("material", "")
+            entry["category_label"] = item.get("category_label", entry["category"])
+            entry["color_label"] = item.get("color_label", entry["color"])
+            entry["material_label"] = item.get("material_label", entry["material"])
             entry["image_url"] = "/media/" + urllib.parse.quote(row["image_path"].replace("\\", "/"))
             payloads.append(entry)
         return list(reversed(payloads))
