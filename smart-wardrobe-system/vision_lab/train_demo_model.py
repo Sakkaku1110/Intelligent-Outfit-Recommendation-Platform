@@ -12,7 +12,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image, ImageStat
+from PIL import Image, ImageStat, UnidentifiedImageError
 
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -68,15 +68,20 @@ def main() -> int:
             groups[label_id].append(row)
 
     labels = []
+    skipped: list[str] = []
     for label_id, samples in sorted(groups.items()):
         vectors = []
         used_samples = []
         for sample in samples:
             image_path = dataset / sample["image_path"]
             if not image_path.exists():
+                skipped.append("%s missing" % sample["image_path"])
                 continue
-            vectors.append(feature_vector(image_path))
-            used_samples.append(sample["image_path"])
+            try:
+                vectors.append(feature_vector(image_path))
+                used_samples.append(sample["image_path"])
+            except (OSError, UnidentifiedImageError) as exc:
+                skipped.append("%s unreadable: %s" % (sample["image_path"], exc))
         if not vectors:
             continue
         prototype = mean_vector(vectors)
@@ -99,6 +104,12 @@ def main() -> int:
     out_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
     print("labels=%d" % len(labels))
     print("model=%s" % out_path)
+    if skipped:
+        print("skipped=%d" % len(skipped))
+        for item in skipped[:20]:
+            print("skip %s" % item)
+        if len(skipped) > 20:
+            print("skip ... %d more" % (len(skipped) - 20))
     for label in labels:
         print("%s samples=%s threshold=%s" % (label["id"], label["samples"], label["threshold"]))
     return 0

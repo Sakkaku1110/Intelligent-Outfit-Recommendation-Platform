@@ -1,14 +1,20 @@
-# 视觉识别调试流程
+# 视觉识别与数据集采集流程
 
-这个目录用于把“感觉识别不准”变成可量化的测试集。
+这个目录用于给比赛演示衣物建立一个稳定的小数据集，并训练板端优先使用的演示识别模型。
 
-## 0. 演示数据集采集 App
+## 0. 启动板子摄像头数据集采集台
 
-在电脑上启动：
+先确认板子智能衣柜服务已经运行，并且电脑能访问：
+
+```powershell
+curl.exe http://192.168.137.2/api/health
+```
+
+在电脑上启动采集台：
 
 ```powershell
 cd C:\Users\t1507\Documents\嵌入式竞赛
-python smart-wardrobe-system\vision_lab\dataset_studio.py --host 0.0.0.0 --port 8090
+python smart-wardrobe-system\vision_lab\dataset_studio.py --host 0.0.0.0 --port 8090 --board-url http://192.168.137.2
 ```
 
 电脑浏览器打开：
@@ -17,20 +23,42 @@ python smart-wardrobe-system\vision_lab\dataset_studio.py --host 0.0.0.0 --port 
 http://127.0.0.1:8090
 ```
 
-手机和平板连接同一个 Wi-Fi 后打开：
+手机或平板连接同一个网络后打开：
 
 ```text
 http://电脑WLAN地址:8090
 ```
 
-采集流程：
+## 1. 采集流程
 
-1. 选择一个固定衣物标签。
-2. 把衣物放进取景框。
-3. 点击“拍摄并上传”。
-4. 每件衣物拍 8-12 张。
-5. 点击“训练模型”。
-6. 点击“推送到板子”。
+1. 选择本次采集的衣物标签。
+2. 左侧实时画面来自板子摄像头，把衣物放进取景框。
+3. 点击“确认拍照”。
+4. 右侧进入“人工审核”，检查裁剪图是不是可用。
+5. 如果标签不对，在审核区改标签。
+6. 点击“确认录入”，照片才会进入训练数据集。
+7. 如果画面糊、太暗、衣服没放好，点击“丢弃重拍”。
+
+样本库支持：
+
+- 查询：页面下方直接显示所有已录入样本。
+- 新增：确认拍照并审核录入。
+- 修改：点样本卡片里的“修改”，可以重新选择标签。
+- 删除：点样本卡片里的“删除”，会同时删除图片和 `labels.csv` 记录。
+
+每件固定演示衣物建议先拍 12-20 张，包含：
+
+- 正面完整图
+- 稍微左转、右转
+- 近一点、远一点
+- 正常光、偏暗光
+- 轻微模糊但还能看清主体
+
+训练数据会保存在：
+
+```text
+smart-wardrobe-system\vision_lab\demo_dataset
+```
 
 训练结果会生成：
 
@@ -38,21 +66,34 @@ http://电脑WLAN地址:8090
 smart-wardrobe-system\vision_lab\demo_dataset\vision_model.json
 ```
 
-推送后板子会优先用这个样本模型识别固定演示衣物。
+## 2. 训练并推送到板子
 
-## 1. 从板子同步已入库样本
+在网页中点击：
 
-先确认电脑中转服务可用：
+1. “训练模型”
+2. “推送到板子”
+
+也可以用命令行：
 
 ```powershell
-curl.exe http://127.0.0.1:8088/api/health
+python smart-wardrobe-system\vision_lab\train_demo_model.py --dataset smart-wardrobe-system\vision_lab\demo_dataset
+python smart-wardrobe-system\vision_lab\deploy_demo_model.py --model smart-wardrobe-system\vision_lab\demo_dataset\vision_model.json --restart
 ```
 
-同步图片和标签：
+推送后，板子会优先使用这个固定衣柜模型识别比赛演示衣物。
+
+## 3. 从板子同步已入库样本
+
+如果已经在智能衣柜 App 里入库过衣服，可以同步出来做评测：
 
 ```powershell
-cd C:\Users\t1507\Documents\嵌入式竞赛
 python smart-wardrobe-system\vision_lab\sync_board_samples.py
+```
+
+如果电脑不能直连板子，可以改用电脑网关：
+
+```powershell
+python smart-wardrobe-system\vision_lab\sync_board_samples.py --base http://127.0.0.1:8088
 ```
 
 输出目录：
@@ -61,21 +102,7 @@ python smart-wardrobe-system\vision_lab\sync_board_samples.py
 smart-wardrobe-system\vision_lab\samples
 ```
 
-如果电脑不能直连板子，再改用 `--base http://127.0.0.1:8088`。
-
-## 2. 生成模糊/暗光增强样本
-
-```powershell
-python smart-wardrobe-system\vision_lab\augment_samples.py --labels smart-wardrobe-system\vision_lab\samples\labels.csv
-```
-
-输出：
-
-```text
-smart-wardrobe-system\vision_lab\samples_augmented
-```
-
-## 3. 批量评测当前算法
+## 4. 批量评测当前算法
 
 评测真实样本：
 
@@ -83,26 +110,14 @@ smart-wardrobe-system\vision_lab\samples_augmented
 python smart-wardrobe-system\vision_lab\evaluate_vision.py --labels smart-wardrobe-system\vision_lab\samples\labels.csv
 ```
 
+生成模糊、暗光增强样本：
+
+```powershell
+python smart-wardrobe-system\vision_lab\augment_samples.py --labels smart-wardrobe-system\vision_lab\samples\labels.csv
+```
+
 评测增强样本：
 
 ```powershell
 python smart-wardrobe-system\vision_lab\evaluate_vision.py --labels smart-wardrobe-system\vision_lab\samples_augmented\labels.csv
 ```
-
-每次调整算法后都跑一遍，观察：
-
-- 类别准确率
-- 颜色族准确率
-- 类别混淆矩阵
-- 每张图片的预测结果
-
-## 4. 推荐采样方式
-
-每类至少先拍 15 张：
-
-- 上衣：挂着、手拿、折叠、局部遮挡
-- 裤子：竖着拿、横着拿、只露半截
-- 鞋子：单只、双只、手拿、鞋底朝外
-- 外套：展开、半折叠、深色和浅色各一批
-
-拍完在 App 的 AI识别结果页人工改准，再入库。同步出来的标签才可以当作评测真值。
