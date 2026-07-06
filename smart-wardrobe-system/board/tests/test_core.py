@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 from app.core import (
+    CloudPreprocessor,
     RecommendationEngine,
     WardrobeDB,
     color_family,
@@ -98,6 +99,13 @@ class WardrobeCoreTest(unittest.TestCase):
         self.assertEqual(payload["color"], "黑色")
         self.assertEqual(payload["material"], "denim")
         self.assertEqual(payload["category_confidence"], 0.5)
+
+    def test_cloud_preprocessor_json_helpers(self):
+        processor = CloudPreprocessor(pathlib.Path(tempfile.gettempdir()))
+        data = processor._parse_json_object('```json\n{"box_2d":[10,20,800,900],"confidence":0.9}\n```')
+        self.assertEqual(data["box_2d"], [10, 20, 800, 900])
+        self.assertEqual(processor._normalized_box([10, 20, 800, 900]), [10, 20, 800, 900])
+        self.assertEqual(processor._normalized_box([9, 8, 10, 11]), [0, 0, 1000, 1000])
 
 
 if __name__ == "__main__":

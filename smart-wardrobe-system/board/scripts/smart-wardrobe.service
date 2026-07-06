@@ -9,6 +9,7 @@ WorkingDirectory=/root/workspace/smart-wardrobe
 Environment=PYTHONUNBUFFERED=1
 Environment=SMART_WARDROBE_PORT=8000
 Environment=SMART_WARDROBE_ALSO_PORT=80
+EnvironmentFile=-/root/workspace/smart-wardrobe/.env
 ExecStart=/bin/bash /root/workspace/smart-wardrobe/scripts/run_server.sh
 Restart=always
 RestartSec=2

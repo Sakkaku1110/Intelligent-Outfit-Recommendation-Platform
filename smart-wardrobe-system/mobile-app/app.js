@@ -7,7 +7,7 @@ const CATEGORY_LABELS = {
   auto: "自动",
 };
 
-const CATEGORY_DEFAULT_NAMES = {
+const DEFAULT_NAMES = {
   top: "新上衣",
   bottom: "新裤子",
   outer: "新外套",
@@ -16,13 +16,13 @@ const CATEGORY_DEFAULT_NAMES = {
 };
 
 const state = {
+  apiBase: defaultApiBase(),
   health: null,
   clothes: [],
   recommendation: null,
   pendingDraft: null,
   pendingAnalysis: null,
   pendingCapture: null,
-  apiBase: defaultApiBase(),
   busy: false,
 };
 
@@ -33,20 +33,27 @@ const els = {
   camera: document.querySelector("#cameraMetric"),
   city: document.querySelector("#cityInput"),
   occasion: document.querySelector("#occasionSelect"),
+  weatherLine: document.querySelector("#weatherLine"),
+  todayTitle: document.querySelector("#todayTitle"),
+  todaySummary: document.querySelector("#todaySummary"),
   refresh: document.querySelector("#refreshBtn"),
-  quickRefresh: document.querySelector("#quickRefreshBtn"),
-  quickWeather: document.querySelector("#quickWeatherText"),
-  recommendList: document.querySelector("#recommendList"),
+  closetRefresh: document.querySelector("#closetRefreshBtn"),
   mirrorPanel: document.querySelector("#mirrorPanel"),
+  recommendList: document.querySelector("#recommendList"),
   wardrobeGrid: document.querySelector("#wardrobeGrid"),
+  cameraStream: document.querySelector("#cameraStream"),
   analyzeCaptureBtn: document.querySelector("#analyzeCaptureBtn"),
-  reviewForm: document.querySelector("#reviewForm"),
+  pipelineChip: document.querySelector("#pipelineChip"),
+  cloudStatus: document.querySelector("#cloudStatus"),
+  reviewTitle: document.querySelector("#reviewTitle"),
   reviewImage: document.querySelector("#reviewImage"),
   reviewBadge: document.querySelector("#reviewBadge"),
+  cloudDetail: document.querySelector("#cloudDetail"),
+  edgeDetail: document.querySelector("#edgeDetail"),
+  reviewForm: document.querySelector("#reviewForm"),
   reviewConfidence: document.querySelector("#reviewConfidence"),
   retakeBtn: document.querySelector("#retakeBtn"),
   saveReviewBtn: document.querySelector("#saveReviewBtn"),
-  cameraStream: document.querySelector("#cameraStream"),
   toast: document.querySelector("#toast"),
 };
 
@@ -74,33 +81,33 @@ async function api(path, options = {}) {
   return data;
 }
 
-function setBusy(button, busy, text) {
-  state.busy = busy;
-  button.disabled = busy;
-  button.textContent = text;
-}
-
 function setStatus(ok, text) {
   els.status.textContent = text;
   els.status.classList.toggle("ok", ok);
   els.status.classList.toggle("bad", !ok);
 }
 
+function setBusy(button, busy, text) {
+  state.busy = busy;
+  button.disabled = busy;
+  button.textContent = text;
+}
+
 function showToast(text) {
   els.toast.textContent = text;
   els.toast.classList.add("show");
-  setTimeout(() => els.toast.classList.remove("show"), 2200);
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => els.toast.classList.remove("show"), 2400);
 }
 
-function activateView(viewId) {
+function activateView(name) {
+  const viewId = `${name}View`;
+  document.body.dataset.view = name;
   document.querySelectorAll(".view").forEach((view) => view.classList.remove("active"));
-  document.querySelector(`#${viewId}`).classList.add("active");
-  document.querySelectorAll(".tab").forEach((tab) => {
-    const isActive = tab.dataset.view === viewId || (viewId === "reviewView" && tab.dataset.view === "captureView");
-    tab.classList.toggle("active", isActive);
+  document.querySelector(`#${viewId}`)?.classList.add("active");
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    item.classList.toggle("active", item.dataset.view === name || (name === "review" && item.dataset.view === "capture"));
   });
-  document.body.classList.remove("capture-view", "review-view", "recommend-view", "wardrobe-view");
-  document.body.classList.add(viewId.replace("View", "-view"));
 }
 
 async function loadAll() {
@@ -122,34 +129,43 @@ async function loadAll() {
 
 function render() {
   const weather = state.recommendation?.weather || {};
-  const tempText = weather.temperature_c === undefined ? "--" : `${weather.temperature_c.toFixed(1)}°C`;
+  const tempText = typeof weather.temperature_c === "number" ? `${weather.temperature_c.toFixed(1)}°C` : "--";
   els.temp.textContent = tempText;
   els.count.textContent = String(state.clothes.length);
-  els.camera.textContent = state.health?.camera?.available ? "正常" : "未检测";
-  els.quickWeather.textContent = `${els.city.value || "Chengdu"} · ${sceneLabel(els.occasion.value)} · ${tempText}`;
+  els.camera.textContent = state.health?.camera?.available ? "正常" : "异常";
+  els.weatherLine.textContent = `${els.city.value || "Chengdu"} · ${sceneLabel(els.occasion.value)} · ${tempText}`;
+  const cloud = state.health?.vision?.cloud;
+  const cloudReady = Boolean(cloud?.configured);
+  els.pipelineChip.textContent = cloudReady ? "云端主体 + 边缘识别" : "边缘识别";
+  els.cloudStatus.textContent = cloudReady ? "云端主体" : "本地裁剪";
   renderRecommendations();
   renderWardrobe();
 }
 
 function renderRecommendations() {
-  const result = state.recommendation;
-  if (!result || !result.recommendations?.length) {
-    const missing = result?.missing_categories?.join("、") || "衣物";
-    els.mirrorPanel.innerHTML = `<div class="mirror-empty">缺少${escapeHtml(missing)}</div>`;
-    els.recommendList.innerHTML = `<div class="empty">缺少${escapeHtml(missing)}</div>`;
+  const recommendations = state.recommendation?.recommendations || [];
+  if (!recommendations.length) {
+    const missing = (state.recommendation?.missing_categories || []).map(categoryLabel).join("、") || "衣物";
+    els.todayTitle.textContent = "还缺一些衣物";
+    els.todaySummary.textContent = `建议补充：${missing}`;
+    els.mirrorPanel.innerHTML = `<article class="empty-card">缺少 ${escapeHtml(missing)}</article>`;
+    els.recommendList.innerHTML = "";
     return;
   }
-  renderMirror(result.recommendations[0]);
-  els.recommendList.innerHTML = result.recommendations
+  const first = recommendations[0];
+  els.todayTitle.textContent = first.summary || "今日推荐";
+  els.todaySummary.textContent = `推荐分 ${first.score}`;
+  renderMirror(first);
+  els.recommendList.innerHTML = recommendations
+    .slice(0, 3)
     .map((rec, index) => {
-      const items = rec.items
+      const items = (rec.items || [])
         .map(
           (item) => `
-            <div class="mini-item">
+            <div class="outfit-tile">
               ${item.image_url ? `<img src="${imageUrl(item.image_url)}" alt="${escapeHtml(item.name)}" />` : ""}
               <strong>${escapeHtml(item.name)}</strong>
-              <span class="tag">${escapeHtml(item.category_label || item.category)}</span>
-              <span class="tag">${escapeHtml(item.color || "未标色")}</span>
+              <span>${escapeHtml(categoryLabel(item.category))} · ${escapeHtml(item.color || "")}</span>
             </div>
           `
         )
@@ -157,14 +173,14 @@ function renderRecommendations() {
       const reasons = (rec.reason || []).map((text) => `<li>${escapeHtml(text)}</li>`).join("");
       return `
         <article class="recommend-card">
-          <div class="recommend-head">
+          <div class="section-head">
             <div>
-              <strong>推荐 ${index + 1}</strong>
-              <p class="eyebrow">${escapeHtml(rec.summary)}</p>
+              <p class="eyebrow">方案 ${index + 1}</p>
+              <h3>${escapeHtml(rec.summary)}</h3>
             </div>
             <span class="score">${escapeHtml(rec.score)}</span>
           </div>
-          <div class="outfit-items">${items}</div>
+          <div class="outfit-row">${items}</div>
           <ul class="reason-list">${reasons}</ul>
         </article>
       `;
@@ -173,115 +189,88 @@ function renderRecommendations() {
 }
 
 function renderMirror(rec) {
-  const items = rec.items || [];
-  const slots = ["top", "outer", "bottom", "shoes"];
-  const byCategory = new Map(items.map((item) => [item.category, item]));
-  const slotHtml = slots
-    .map((slot) => {
-      const item = byCategory.get(slot);
-      if (!item) return `<div class="mirror-slot empty-slot">${slotLabel(slot)}</div>`;
-      const image = item.image_url
-        ? `<img src="${imageUrl(item.image_url)}" alt="${escapeHtml(item.name)}" />`
-        : `<div class="mirror-placeholder">${escapeHtml((item.category_label || "?").slice(0, 1))}</div>`;
-      return `
-        <div class="mirror-slot">
-          ${image}
-          <strong>${escapeHtml(item.name)}</strong>
-          <span>${escapeHtml(item.color || "")} ${escapeHtml(item.material || "")}</span>
-        </div>
-      `;
-    })
-    .join("");
+  const slots = ["outer", "top", "bottom", "shoes"];
+  const byCategory = new Map((rec.items || []).map((item) => [item.category, item]));
   els.mirrorPanel.innerHTML = `
     <article class="mirror-card">
-      <div class="mirror-copy">
-        <p class="label">今日试衣镜</p>
-        <h2>${escapeHtml(rec.summary)}</h2>
-        <p class="score">推荐分 ${escapeHtml(rec.score)}</p>
-      </div>
-      <div class="mirror-stack">${slotHtml}</div>
+      ${slots
+        .map((slot) => {
+          const item = byCategory.get(slot);
+          if (!item) return `<div class="mirror-slot empty">${categoryLabel(slot)}</div>`;
+          return `
+            <div class="mirror-slot">
+              ${item.image_url ? `<img src="${imageUrl(item.image_url)}" alt="${escapeHtml(item.name)}" />` : ""}
+              <strong>${escapeHtml(item.name)}</strong>
+              <span>${escapeHtml(item.color || "")}</span>
+            </div>
+          `;
+        })
+        .join("")}
     </article>
   `;
 }
 
 function renderWardrobe() {
   if (!state.clothes.length) {
-    els.wardrobeGrid.innerHTML = `<div class="empty">暂无衣物</div>`;
+    els.wardrobeGrid.innerHTML = `<article class="empty-card">暂无衣物</article>`;
     return;
   }
   els.wardrobeGrid.innerHTML = state.clothes
-    .map((item) => {
-      const image = item.image_url
-        ? `<img class="clothes-image" src="${imageUrl(item.image_url)}" alt="${escapeHtml(item.name)}" />`
-        : `<div class="placeholder">${escapeHtml((item.category_label || "?").slice(0, 1))}</div>`;
-      return `
+    .map(
+      (item) => `
         <article class="clothes-card">
-          ${image}
+          ${item.image_url ? `<img src="${imageUrl(item.image_url)}" alt="${escapeHtml(item.name)}" />` : ""}
           <div class="clothes-body">
             <strong>${escapeHtml(item.name)}</strong>
             <div class="tag-row">
-              <span class="tag">${escapeHtml(item.category_label || item.category)}</span>
-              <span class="tag">${escapeHtml(item.color || "未标色")}</span>
-              <span class="tag">${escapeHtml(item.material || "未标材质")}</span>
-              <span class="tag">保暖 ${escapeHtml(item.warmth)}</span>
-              ${isReviewed(item) ? `<span class="tag reviewed-tag">已审核</span>` : ""}
+              <span>${escapeHtml(categoryLabel(item.category))}</span>
+              <span>${escapeHtml(item.color || "未标色")}</span>
+              <span>${escapeHtml(item.material || "未标材质")}</span>
             </div>
-            ${renderConfidence(item)}
-            <button class="danger-btn" data-delete="${item.id}" type="button">删除</button>
+            ${renderAnalysis(item)}
+            <button class="delete-btn" data-delete="${item.id}" type="button">删除</button>
           </div>
         </article>
-      `;
-    })
+      `
+    )
     .join("");
 }
 
-function renderConfidence(item) {
-  if (isReviewed(item)) {
-    const ai = item.ai_analysis || {};
-    const confidence = ai.confidence || {};
-    return `
-      <div class="confidence-row">
-        <span>AI原始：类 ${percent(confidence.category)} 色 ${percent(confidence.color)} 材 ${percent(confidence.material)}</span>
-      </div>
-    `;
-  }
-  const c1 = Math.round(Number(item.category_confidence || 0) * 100);
-  const c2 = Math.round(Number(item.color_confidence || 0) * 100);
-  const c3 = Math.round(Number(item.material_confidence || 0) * 100);
-  if (!c1 && !c2 && !c3) return "";
-  return `
-    <div class="confidence-row">
-      <span>类 ${c1}%</span>
-      <span>色 ${c2}%</span>
-      <span>材 ${c3}%</span>
-    </div>
-  `;
+function renderAnalysis(item) {
+  const cloud = item.ai_analysis?.cloud_preprocess;
+  const model = item.ai_analysis?.features?.model_match;
+  const bits = [];
+  if (cloud?.used) bits.push("云端裁剪");
+  if (model?.name) bits.push(`模型：${model.name}`);
+  if (item.ai_analysis?.review?.confirmed) bits.push("已审核");
+  if (!bits.length) return "";
+  return `<p class="analysis-note">${bits.map(escapeHtml).join(" · ")}</p>`;
 }
 
 async function analyzeCapture() {
   if (state.busy) return;
-  setBusy(els.analyzeCaptureBtn, true, "识别中");
+  setBusy(els.analyzeCaptureBtn, true, "处理中");
   try {
-    const analyzed = await api("/api/clothes/capture/analyze", {
+    const result = await api("/api/clothes/capture/analyze", {
       method: "POST",
       body: JSON.stringify({
         category: "auto",
         season: "summer_light,spring_autumn",
         occasion: `${els.occasion.value || "school"},casual`,
         favorite_score: 4,
-        auto_analyze: true,
         use_viewfinder: true,
+        use_cloud_preprocess: true,
       }),
     });
-    state.pendingDraft = normalizeDraft(analyzed.draft || {});
-    state.pendingAnalysis = analyzed.analysis || {};
-    state.pendingCapture = analyzed.capture || {};
+    state.pendingAnalysis = result.analysis || {};
+    state.pendingCapture = result.capture || {};
+    state.pendingDraft = normalizeDraft(result.draft || {});
     fillReviewForm();
-    activateView("reviewView");
+    activateView("review");
   } catch (error) {
     showToast(error.message);
   } finally {
-    setBusy(els.analyzeCaptureBtn, false, "确认识别");
+    setBusy(els.analyzeCaptureBtn, false, "拍照识别");
   }
 }
 
@@ -290,7 +279,7 @@ function normalizeDraft(draft) {
   return {
     ...draft,
     category,
-    name: draft.name || CATEGORY_DEFAULT_NAMES[category] || "新衣物",
+    name: draft.name || state.pendingAnalysis?.item_name || DEFAULT_NAMES[category] || "新衣物",
     color: draft.color || "",
     material: draft.material || "cotton",
     warmth: draft.warmth || 3,
@@ -304,19 +293,21 @@ function fillReviewForm() {
   const draft = state.pendingDraft || {};
   const analysis = state.pendingAnalysis || {};
   const capture = state.pendingCapture || {};
+  const cloud = capture.cloud_preprocess || {};
+  els.reviewTitle.textContent = draft.name || "确认这件衣物";
   els.reviewImage.src = imageUrl(capture.image_url || draft.image_url || "");
+  els.reviewBadge.textContent = Number(analysis?.confidence?.category || 0) >= 0.8 ? "高置信" : "待确认";
+  els.cloudDetail.textContent = cloud.used ? `已裁剪 ${percent(cloud.confidence)}` : "回退本地";
+  const match = analysis?.features?.model_match;
+  els.edgeDetail.textContent = match?.name ? `${match.name} ${percent(match.score)}` : categoryLabel(draft.category);
   for (const [key, value] of Object.entries(draft)) {
     const input = els.reviewForm.elements[key];
     if (input) input.value = value ?? "";
   }
-  const categoryConfidence = Number(analysis?.confidence?.category || 0);
-  els.reviewBadge.textContent = categoryConfidence < 0.55 ? "需要审核" : "已识别";
   els.reviewConfidence.innerHTML = `
-    <div class="analysis-line">
-      <span class="tag">类别 ${escapeHtml(categoryLabel(draft.category))} ${percent(categoryConfidence)}</span>
-      <span class="tag">颜色 ${escapeHtml(draft.color || "未识别")} ${percent(analysis?.confidence?.color)}</span>
-      <span class="tag">材质 ${escapeHtml(materialLabel(draft.material, analysis))} ${percent(analysis?.confidence?.material)}</span>
-    </div>
+    <span>类别 ${percent(analysis?.confidence?.category)}</span>
+    <span>颜色 ${percent(analysis?.confidence?.color)}</span>
+    <span>材质 ${percent(analysis?.confidence?.material)}</span>
   `;
 }
 
@@ -336,26 +327,22 @@ async function saveReviewedItem(event) {
       material_confidence: 1,
       ai_analysis: {
         ...(state.pendingAnalysis || {}),
+        cloud_preprocess: state.pendingCapture?.cloud_preprocess || {},
+        capture: state.pendingCapture || {},
         review: {
           confirmed: true,
           confirmed_at: new Date().toISOString(),
-          original_category: state.pendingAnalysis?.category,
-          original_color: state.pendingAnalysis?.color,
-          original_material: state.pendingAnalysis?.material,
         },
       },
-      note: "人工审核确认",
+      note: "云边协同入库，人工审核确认",
     };
-    await api("/api/clothes", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    await api("/api/clothes", { method: "POST", body: JSON.stringify(payload) });
     state.pendingDraft = null;
     state.pendingAnalysis = null;
     state.pendingCapture = null;
     showToast("已入库");
     await loadAll();
-    activateView("recommendView");
+    activateView("today");
   } catch (error) {
     showToast(error.message);
   } finally {
@@ -363,16 +350,8 @@ async function saveReviewedItem(event) {
   }
 }
 
-function isReviewed(item) {
-  return Boolean(item?.ai_analysis?.review?.confirmed);
-}
-
 function categoryLabel(category) {
   return CATEGORY_LABELS[category] || category || "";
-}
-
-function slotLabel(slot) {
-  return { top: "上衣", outer: "外套", bottom: "裤子", shoes: "鞋子" }[slot] || slot;
 }
 
 function sceneLabel(scene) {
@@ -384,11 +363,6 @@ function sceneLabel(scene) {
     formal: "正式",
     date: "约会",
   }[scene] || scene;
-}
-
-function materialLabel(material, analysis) {
-  if (analysis?.material_label) return analysis.material_label;
-  return material || "未识别";
 }
 
 function percent(value) {
@@ -411,12 +385,12 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-document.querySelectorAll(".tab").forEach((button) => {
+document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => activateView(button.dataset.view));
 });
 
 els.refresh.addEventListener("click", loadAll);
-els.quickRefresh.addEventListener("click", loadAll);
+els.closetRefresh.addEventListener("click", loadAll);
 els.city.addEventListener("change", () => {
   localStorage.setItem("smartWardrobeCity", els.city.value);
   loadAll();
@@ -424,8 +398,7 @@ els.city.addEventListener("change", () => {
 els.occasion.addEventListener("change", loadAll);
 els.analyzeCaptureBtn.addEventListener("click", analyzeCapture);
 els.reviewForm.addEventListener("submit", saveReviewedItem);
-els.retakeBtn.addEventListener("click", () => activateView("captureView"));
-
+els.retakeBtn.addEventListener("click", () => activateView("capture"));
 els.wardrobeGrid.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-delete]");
   if (!button) return;

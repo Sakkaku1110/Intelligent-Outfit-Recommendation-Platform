@@ -19,6 +19,7 @@ from typing import Any, Dict, Optional
 
 from .core import (
     Camera,
+    CloudPreprocessor,
     ImageAnalyzer,
     RecommendationEngine,
     WardrobeDB,
@@ -39,6 +40,7 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
     db: WardrobeDB
     weather: WeatherClient
     camera: Camera
+    cloud_preprocessor: CloudPreprocessor
     analyzer: ImageAnalyzer
     recommender: RecommendationEngine
 
@@ -86,6 +88,8 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                 self.send_json({"items": self.db.list_clothes(), "count": self.db.count()})
             elif path == "/api/camera/stream":
                 self.serve_camera_stream()
+            elif path == "/api/vision/cloud/status":
+                self.send_json({"cloud": self.cloud_preprocessor.status()})
             elif path in {"/api/recommend", "/api/recommendations"}:
                 city = query.get("city", [os.environ.get("SMART_WARDROBE_CITY", "Hangzhou")])[0]
                 occasion = query.get("occasion", ["school"])[0]
@@ -112,17 +116,22 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
             elif path == "/api/clothes/capture":
                 payload = self.read_json()
                 use_viewfinder = bool(payload.pop("use_viewfinder", True))
+                use_cloud_preprocess = bool(payload.pop("use_cloud_preprocess", True))
                 capture = self.camera.capture(
                     resolution=str(payload.pop("resolution", "640x480")),
                     skip_frames=int(payload.pop("skip_frames", 10)),
                 )
                 if use_viewfinder:
                     capture = self.apply_viewfinder_crop(capture)
+                if use_cloud_preprocess:
+                    capture = self.apply_cloud_preprocess(capture)
                 payload.update(capture)
                 if bool(payload.pop("auto_analyze", True)):
                     analysis = self.analyzer.analyze(
                         capture["image_path"], focus_viewfinder=False
                     )
+                    if capture.get("cloud_preprocess"):
+                        analysis["cloud_preprocess"] = capture.get("cloud_preprocess")
                     payload = merge_analysis_into_payload(payload, analysis)
                 item = self.db.add_clothing(payload)
                 self.send_json(
@@ -132,15 +141,20 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
             elif path == "/api/clothes/capture/analyze":
                 payload = self.read_json(allow_empty=True)
                 use_viewfinder = bool(payload.pop("use_viewfinder", True))
+                use_cloud_preprocess = bool(payload.pop("use_cloud_preprocess", True))
                 capture = self.camera.capture(
                     resolution=str(payload.pop("resolution", "640x480")),
                     skip_frames=int(payload.pop("skip_frames", 10)),
                 )
                 if use_viewfinder:
                     capture = self.apply_viewfinder_crop(capture)
+                if use_cloud_preprocess:
+                    capture = self.apply_cloud_preprocess(capture)
                 analysis = self.analyzer.analyze(
                     capture["image_path"], focus_viewfinder=False
                 )
+                if capture.get("cloud_preprocess"):
+                    analysis["cloud_preprocess"] = capture.get("cloud_preprocess")
                 payload.update(capture)
                 draft = merge_analysis_into_payload(payload, analysis)
                 self.send_json({"draft": draft, "capture": capture, "analysis": analysis})
@@ -166,6 +180,29 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
         updated["raw_image_url"] = capture.get("image_url", "")
         updated.update(cropped)
         updated["crop_applied"] = True
+        return updated
+
+    def apply_cloud_preprocess(self, capture: Dict[str, Any]) -> Dict[str, Any]:
+        source_path = capture.get("image_path", "")
+        if not source_path:
+            return capture
+        cloud = self.cloud_preprocessor.preprocess(
+            source_path,
+            image_url=str(capture.get("image_url") or ""),
+        )
+        updated = dict(capture)
+        updated["cloud_preprocess"] = cloud
+        if not cloud.get("ok"):
+            return updated
+        updated["pre_cloud_image_path"] = capture.get("image_path", "")
+        updated["pre_cloud_image_url"] = capture.get("image_url", "")
+        updated.update(
+            {
+                "image_path": cloud.get("image_path", capture.get("image_path", "")),
+                "image_url": cloud.get("image_url", capture.get("image_url", "")),
+                "cloud_crop_applied": True,
+            }
+        )
         return updated
 
     def do_PUT(self) -> None:
@@ -291,7 +328,8 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
             },
             "vision": {
                 "opencv_required": True,
-                "mode": "rule_based_mvp",
+                "mode": "cloud_subject_crop_plus_edge_model",
+                "cloud": self.cloud_preprocessor.status(),
             },
         }
 
@@ -301,6 +339,7 @@ def make_handler(db_path: pathlib.Path, camera_device: str) -> type[SmartWardrob
     SmartWardrobeHandler.weather = WeatherClient(DATA_ROOT / "weather_cache.json")
     SmartWardrobeHandler.camera = Camera(UPLOAD_ROOT, device=camera_device)
     SmartWardrobeHandler.camera.start_live()
+    SmartWardrobeHandler.cloud_preprocessor = CloudPreprocessor(UPLOAD_ROOT)
     SmartWardrobeHandler.analyzer = ImageAnalyzer()
     SmartWardrobeHandler.recommender = RecommendationEngine()
     return SmartWardrobeHandler

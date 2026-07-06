@@ -12,29 +12,62 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image, ImageStat, UnidentifiedImageError
+try:
+    from PIL import Image, ImageStat, UnidentifiedImageError
+except ImportError:  # Board-side training can run with OpenCV only.
+    Image = None  # type: ignore
+    ImageStat = None  # type: ignore
+
+    class UnidentifiedImageError(OSError):
+        pass
 
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def feature_vector(image_path: Path) -> list[float]:
-    image = Image.open(image_path).convert("RGB").resize((96, 96))
-    stat = ImageStat.Stat(image)
-    mean = [value / 255.0 for value in stat.mean]
-    std = [value / 255.0 for value in stat.stddev]
-    hsv = image.convert("HSV")
-    hist = [0.0] * 8
-    total = 0
-    for h, s, v in hsv.getdata():
-        if s <= 24 or v <= 24:
-            continue
-        index = min(7, int((h / 256.0) * 8))
-        hist[index] += 1.0
-        total += 1
-    if total:
-        hist = [value / total for value in hist]
-    return [float(value) for value in mean + std + hist]
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+
+        image = cv2.imread(str(image_path))
+        if image is None:
+            raise UnidentifiedImageError(str(image_path))
+        small = cv2.resize(image, (96, 96))
+        rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB).astype("float32") / 255.0
+        hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+        pixels = rgb.reshape((-1, 3))
+        mean = pixels.mean(axis=0).tolist()
+        std = pixels.std(axis=0).tolist()
+        h = hsv[:, :, 0].reshape(-1)
+        s = hsv[:, :, 1].reshape(-1)
+        v = hsv[:, :, 2].reshape(-1)
+        valid = (s > 24) & (v > 24)
+        if valid.any():
+            hist = np.histogram(h[valid], bins=8, range=(0, 180))[0].astype("float32")
+        else:
+            hist = np.zeros(8, dtype="float32")
+        hist = hist / max(1.0, float(hist.sum()))
+        return [float(value) for value in mean + std + hist.tolist()]
+    except ImportError:
+        if Image is None or ImageStat is None:
+            raise RuntimeError("Either OpenCV or Pillow is required to train the demo model.")
+        image = Image.open(image_path).convert("RGB").resize((96, 96))
+        stat = ImageStat.Stat(image)
+        mean = [value / 255.0 for value in stat.mean]
+        std = [value / 255.0 for value in stat.stddev]
+        hsv = image.convert("HSV")
+        hist = [0.0] * 8
+        total = 0
+        for h, s, v in hsv.getdata():
+            if s <= 24 or v <= 24:
+                continue
+            index = min(7, int((h / 256.0) * 8))
+            hist[index] += 1.0
+            total += 1
+        if total:
+            hist = [value / total for value in hist]
+        return [float(value) for value in mean + std + hist]
 
 
 def mean_vector(vectors: list[list[float]]) -> list[float]:
@@ -88,6 +121,7 @@ def main() -> int:
         max_dist = max(distance(vector, prototype) for vector in vectors)
         item = dict(wardrobe_by_id[label_id])
         item["prototype"] = [round(value, 6) for value in prototype]
+        item["sample_vectors"] = [[round(value, 6) for value in vector] for vector in vectors]
         item["samples"] = len(vectors)
         item["sample_paths"] = used_samples
         item["threshold"] = round(max(0.28, min(0.62, max_dist * 1.9 + 0.08)), 4)

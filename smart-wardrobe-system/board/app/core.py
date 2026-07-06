@@ -7,10 +7,12 @@ the HiEulerPI/SS928 board with only Python 3 and a few small Linux tools.
 
 from __future__ import annotations
 
+import base64
 import itertools
 import json
 import os
 import pathlib
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -205,6 +207,193 @@ def crop_viewfinder_image(image_path: str, output_dir: pathlib.Path) -> Dict[str
         "image_url": "/uploads/%s" % output_name,
         "crop_box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
     }
+
+
+class CloudPreprocessor:
+    """Optional cloud subject extraction before edge-side recognition."""
+
+    def __init__(self, upload_dir: pathlib.Path):
+        self.upload_dir = pathlib.Path(upload_dir)
+        self.provider = os.environ.get("SMART_WARDROBE_CLOUD_PROVIDER", "gemini").strip().lower()
+        self.model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        self.api_key = (
+            os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+            or os.environ.get("SMART_WARDROBE_GEMINI_API_KEY")
+            or ""
+        ).strip()
+        self.timeout = float(os.environ.get("SMART_WARDROBE_CLOUD_TIMEOUT", "18") or 18)
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "configured": self.configured(),
+            "purpose": "subject_bbox_crop",
+        }
+
+    def configured(self) -> bool:
+        return self.provider == "gemini" and bool(self.api_key)
+
+    def preprocess(self, image_path: str, image_url: str = "") -> Dict[str, Any]:
+        if not self.configured():
+            return {
+                "ok": False,
+                "used": False,
+                "provider": self.provider,
+                "reason": "missing_api_key",
+                "message": "Set GEMINI_API_KEY to enable cloud subject extraction.",
+            }
+        try:
+            return self._preprocess_with_gemini(pathlib.Path(image_path), image_url)
+        except Exception as exc:
+            return {
+                "ok": False,
+                "used": False,
+                "provider": self.provider,
+                "model": self.model,
+                "reason": "cloud_error",
+                "message": str(exc)[:500],
+            }
+
+    def _preprocess_with_gemini(self, image_path: pathlib.Path, image_url: str) -> Dict[str, Any]:
+        if not image_path.exists():
+            raise FileNotFoundError(str(image_path))
+        image_bytes = image_path.read_bytes()
+        mime_type = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
+        prompt = (
+            "Find the single main clothing item that should be stored in a smart wardrobe dataset. "
+            "Ignore hands, hangers, faces, shoes worn by people, background furniture, curtains, beds, desks, and other clutter. "
+            "Return only valid JSON with this schema: "
+            "{\"box_2d\":[ymin,xmin,ymax,xmax],\"label\":\"garment\",\"confidence\":0.0,\"quality\":\"ok|bad\",\"reason\":\"short\"}. "
+            "Coordinates must be normalized integers from 0 to 1000 relative to the full image. "
+            "If no garment is visible, set confidence to 0 and box_2d to [0,0,1000,1000]."
+        )
+        body = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt},
+                        {
+                            "inline_data": {
+                                "mime_type": mime_type,
+                                "data": base64.b64encode(image_bytes).decode("ascii"),
+                            }
+                        },
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.05,
+                "responseMimeType": "application/json",
+            },
+        }
+        endpoint = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            + urllib.parse.quote(self.model, safe="-_.")
+            + ":generateContent?key="
+            + urllib.parse.quote(self.api_key)
+        )
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        text = self._gemini_text(payload)
+        result = self._parse_json_object(text)
+        box = self._normalized_box(result.get("box_2d"))
+        crop = self._crop_to_box(image_path, box)
+        crop.update(
+            {
+                "ok": True,
+                "used": True,
+                "provider": "gemini",
+                "model": self.model,
+                "source_image_path": str(image_path),
+                "source_image_url": image_url,
+                "label": str(result.get("label") or "garment"),
+                "confidence": float(result.get("confidence") or 0),
+                "quality": str(result.get("quality") or "ok"),
+                "reason": str(result.get("reason") or "")[:240],
+                "normalized_box": box,
+            }
+        )
+        return crop
+
+    def _gemini_text(self, payload: Dict[str, Any]) -> str:
+        candidates = payload.get("candidates") or []
+        if not candidates:
+            raise RuntimeError("Gemini returned no candidates")
+        parts = ((candidates[0].get("content") or {}).get("parts") or [])
+        text = "\n".join(str(part.get("text") or "") for part in parts if part.get("text"))
+        if not text.strip():
+            raise RuntimeError("Gemini returned empty text")
+        return text
+
+    def _parse_json_object(self, text: str) -> Dict[str, Any]:
+        cleaned = text.strip()
+        cleaned = re.sub(r"^```(?:json)?", "", cleaned).strip()
+        cleaned = re.sub(r"```$", "", cleaned).strip()
+        if not cleaned.startswith("{"):
+            match = re.search(r"\{.*\}", cleaned, flags=re.S)
+            if match:
+                cleaned = match.group(0)
+        data = json.loads(cleaned)
+        if isinstance(data, list):
+            data = data[0] if data else {}
+        if not isinstance(data, dict):
+            raise ValueError("Gemini JSON is not an object")
+        return data
+
+    def _normalized_box(self, value: Any) -> List[int]:
+        if not isinstance(value, list) or len(value) != 4:
+            return [0, 0, 1000, 1000]
+        numbers = []
+        for item in value:
+            try:
+                numbers.append(int(round(float(item))))
+            except (TypeError, ValueError):
+                numbers.append(0)
+        y1, x1, y2, x2 = [max(0, min(1000, number)) for number in numbers]
+        if y2 <= y1 + 20 or x2 <= x1 + 20:
+            return [0, 0, 1000, 1000]
+        return [y1, x1, y2, x2]
+
+    def _crop_to_box(self, image_path: pathlib.Path, normalized_box: List[int]) -> Dict[str, Any]:
+        try:
+            import cv2  # type: ignore
+        except Exception as exc:
+            raise RuntimeError("OpenCV unavailable for cloud crop: %s" % exc) from exc
+        image = cv2.imread(str(image_path))
+        if image is None:
+            raise RuntimeError("cannot read image for cloud crop: %s" % image_path)
+        height, width = image.shape[:2]
+        y1n, x1n, y2n, x2n = normalized_box
+        x1 = int(width * x1n / 1000)
+        x2 = int(width * x2n / 1000)
+        y1 = int(height * y1n / 1000)
+        y2 = int(height * y2n / 1000)
+        pad_x = max(6, int((x2 - x1) * 0.08))
+        pad_y = max(6, int((y2 - y1) * 0.08))
+        x1 = max(0, x1 - pad_x)
+        y1 = max(0, y1 - pad_y)
+        x2 = min(width, x2 + pad_x)
+        y2 = min(height, y2 + pad_y)
+        if x2 <= x1 or y2 <= y1:
+            x1, y1, x2, y2 = 0, 0, width, height
+        crop = image[y1:y2, x1:x2]
+        output_name = "%s_cloud%s" % (image_path.stem, image_path.suffix or ".jpg")
+        output_path = self.upload_dir / output_name
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(output_path), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 94])
+        return {
+            "image_path": str(output_path),
+            "image_url": "/uploads/%s" % output_name,
+            "crop_box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+        }
 
 
 def season_for_temperature(temp_c: float) -> str:
@@ -568,8 +757,9 @@ class ImageAnalyzer:
         material_result = self._material_hint(cv2, np, corrected, mask, color_result["family"])
         category_result = self._category_hint(width, height, bbox, material_result["material"])
         model_match = self._match_demo_model(cv2, np, image)
+        matched_label = model_match["label"] if model_match else {}
         if model_match:
-            label = model_match["label"]
+            label = matched_label
             category_result = dict(category_result)
             category_result["category"] = normalize_category(label.get("category"))
             category_result["confidence"] = max(float(category_result["confidence"]), 0.98)
@@ -590,8 +780,11 @@ class ImageAnalyzer:
         }
         return {
             "ok": True,
+            "item_id": matched_label.get("id"),
+            "item_name": matched_label.get("name"),
             "category": category_result["category"],
-            "category_label": CATEGORY_LABELS.get(category_result["category"], category_result["category"]),
+            "category_label": matched_label.get("category_label")
+            or CATEGORY_LABELS.get(category_result["category"], category_result["category"]),
             "color": color_result["label"],
             "color_family": color_result["family"],
             "material": material_result["material"],
@@ -639,12 +832,16 @@ class ImageAnalyzer:
         vector = self._feature_vector(cv2, np, image)
         best: Optional[Tuple[float, Dict[str, Any]]] = None
         for label in labels:
-            prototype = label.get("prototype") or []
-            if len(prototype) != len(vector):
-                continue
-            distance = sum((float(a) - float(b)) ** 2 for a, b in zip(vector, prototype)) ** 0.5
-            if best is None or distance < best[0]:
-                best = (distance, label)
+            references = []
+            if label.get("prototype"):
+                references.append(label.get("prototype") or [])
+            references.extend(label.get("sample_vectors") or [])
+            for reference in references:
+                if len(reference) != len(vector):
+                    continue
+                distance = sum((float(a) - float(b)) ** 2 for a, b in zip(vector, reference)) ** 0.5
+                if best is None or distance < best[0]:
+                    best = (distance, label)
         if not best:
             return None
         distance, label = best
@@ -950,7 +1147,9 @@ def merge_analysis_into_payload(payload: Dict[str, Any], analysis: Dict[str, Any
     if not category_value or category_value == "auto":
         merged["category"] = analysis.get("category", "top")
     if not str(merged.get("name") or "").strip():
-        merged["name"] = CATEGORY_DEFAULT_NAMES.get(merged.get("category"), "自动识别衣物")
+        merged["name"] = analysis.get("item_name") or CATEGORY_DEFAULT_NAMES.get(
+            merged.get("category"), "自动识别衣物"
+        )
     if not str(merged.get("color") or "").strip():
         merged["color"] = analysis.get("color", "")
     if not str(merged.get("material") or "").strip():

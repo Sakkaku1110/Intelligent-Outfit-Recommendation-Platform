@@ -2,157 +2,174 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#121417" />
-    <title>智能衣柜触控屏</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f5f7" />
+    <title>智能衣橱</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body class="capture-view">
-    <main id="appShell" class="shell">
-      <header class="topbar">
+  <body data-view="today">
+    <main class="app-shell">
+      <header class="app-header">
         <div>
           <p class="eyebrow">SS928 Smart Wardrobe</p>
-          <h1>智能衣柜触控屏</h1>
+          <h1>智能衣橱</h1>
         </div>
         <span id="statusPill" class="status-pill">连接中</span>
       </header>
 
-      <section class="panel weather-panel">
-        <label>
-          城市
-          <input id="cityInput" class="line-input" value="Chengdu" />
-        </label>
-        <label>
-          场景
-          <select id="occasionSelect" class="line-input">
-            <option value="school">上课</option>
-            <option value="commute">通勤</option>
-            <option value="casual">休闲</option>
-            <option value="sport">运动</option>
-            <option value="formal">正式</option>
-            <option value="date">约会</option>
-          </select>
-        </label>
-        <button id="refreshBtn" class="primary-btn" type="button">刷新</button>
-      </section>
-
-      <section class="summary-strip">
-        <div>
-          <span class="metric" id="tempMetric">--</span>
-          <span class="metric-label">实时温度</span>
-        </div>
-        <div>
-          <span class="metric" id="countMetric">--</span>
-          <span class="metric-label">已入库</span>
-        </div>
-        <div>
-          <span class="metric" id="cameraMetric">--</span>
-          <span class="metric-label">摄像头</span>
-        </div>
-      </section>
-
-      <nav class="tabs" aria-label="views">
-        <button class="tab active" data-view="captureView" type="button">AI入库</button>
-        <button class="tab" data-view="recommendView" type="button">试衣镜</button>
-        <button class="tab" data-view="wardrobeView" type="button">衣物库</button>
-      </nav>
-
-      <section id="captureView" class="view active">
-        <section class="camera-stage panel">
-          <div class="camera-frame">
-            <img id="cameraStream" src="/api/camera/stream" alt="camera stream" />
-            <div class="viewfinder"></div>
-            <div class="camera-action-bar">
-              <button id="analyzeCaptureBtn" class="primary-btn camera-confirm-btn" type="button">
-                确认识别
-              </button>
+      <section id="todayView" class="view active">
+        <section class="hero-card">
+          <div class="hero-copy">
+            <p id="weatherLine" class="eyebrow">Chengdu</p>
+            <h2 id="todayTitle">今日推荐</h2>
+            <p id="todaySummary">正在读取衣橱</p>
+          </div>
+          <div class="hero-metrics">
+            <div>
+              <strong id="tempMetric">--</strong>
+              <span>温度</span>
+            </div>
+            <div>
+              <strong id="countMetric">--</strong>
+              <span>衣物</span>
+            </div>
+            <div>
+              <strong id="cameraMetric">--</strong>
+              <span>摄像头</span>
             </div>
           </div>
-          <div class="camera-status">
-            <span>实时取景</span>
-            <span id="visionHint">取景框就绪</span>
+        </section>
+
+        <section class="control-card">
+          <label>
+            城市
+            <input id="cityInput" value="Chengdu" />
+          </label>
+          <label>
+            场景
+            <select id="occasionSelect">
+              <option value="school">上课</option>
+              <option value="commute">通勤</option>
+              <option value="casual">休闲</option>
+              <option value="sport">运动</option>
+              <option value="formal">正式</option>
+              <option value="date">约会</option>
+            </select>
+          </label>
+          <button id="refreshBtn" class="icon-button" type="button" aria-label="刷新">刷新</button>
+        </section>
+
+        <section id="mirrorPanel" class="mirror-panel"></section>
+        <section id="recommendList" class="recommend-list"></section>
+      </section>
+
+      <section id="captureView" class="view">
+        <section class="capture-card">
+          <div class="camera-frame">
+            <img id="cameraStream" src="/api/camera/stream" alt="实时取景" />
+            <div class="viewfinder"></div>
+            <div class="camera-overlay">
+              <div id="pipelineChip" class="pipeline-chip">云边协同</div>
+              <button id="analyzeCaptureBtn" class="capture-button" type="button">拍照识别</button>
+            </div>
+          </div>
+          <div class="pipeline-row">
+            <span id="cloudStatus">云端主体</span>
+            <span>边缘识别</span>
+            <span>人工审核</span>
           </div>
         </section>
       </section>
 
       <section id="reviewView" class="view">
-        <section class="panel review-panel">
-          <div class="review-head">
+        <section class="review-card">
+          <div class="review-header">
             <div>
-              <p class="label">AI识别结果</p>
-              <h2>人工审核后入库</h2>
+              <p class="eyebrow">AI 入库审核</p>
+              <h2 id="reviewTitle">确认这件衣物</h2>
             </div>
-            <span id="reviewBadge" class="analysis-badge">待确认</span>
+            <span id="reviewBadge" class="status-pill soft">待确认</span>
           </div>
-          <div class="review-layout">
-            <img id="reviewImage" class="review-image" alt="capture preview" />
-            <form id="reviewForm" class="review-form">
-              <div class="review-grid">
-                <label>
-                  类别
-                  <select name="category">
-                    <option value="top">上衣</option>
-                    <option value="bottom">裤子</option>
-                    <option value="outer">外套</option>
-                    <option value="shoes">鞋子</option>
-                    <option value="accessory">配饰</option>
-                  </select>
-                </label>
-                <label>
-                  名称
-                  <input name="name" />
-                </label>
-                <label>
-                  颜色
-                  <input name="color" />
-                </label>
-                <label>
-                  材质
-                  <input name="material" />
-                </label>
-                <label>
-                  保暖值
-                  <input name="warmth" type="number" min="1" max="5" />
-                </label>
-                <label>
-                  偏好分
-                  <input name="favorite_score" type="number" min="1" max="5" />
-                </label>
-                <label>
-                  季节
-                  <input name="season" />
-                </label>
-                <label>
-                  场景
-                  <input name="occasion" />
-                </label>
-              </div>
-              <div id="reviewConfidence" class="analysis-result"></div>
-              <div class="review-actions">
-                <button id="retakeBtn" class="secondary-btn" type="button">返回取景</button>
-                <button id="saveReviewBtn" class="primary-btn confirm-btn" type="submit">
-                  确认入库
-                </button>
-              </div>
-            </form>
-          </div>
-        </section>
-      </section>
 
-      <section id="recommendView" class="view">
-        <section class="quick-weather">
-          <span id="quickWeatherText">--</span>
-          <button id="quickRefreshBtn" class="secondary-btn" type="button">刷新</button>
+          <img id="reviewImage" class="review-image" alt="识别结果" />
+
+          <div class="pipeline-detail">
+            <div>
+              <span>云端主体</span>
+              <strong id="cloudDetail">未启用</strong>
+            </div>
+            <div>
+              <span>边缘模型</span>
+              <strong id="edgeDetail">等待识别</strong>
+            </div>
+          </div>
+
+          <form id="reviewForm" class="review-form">
+            <label>
+              名称
+              <input name="name" />
+            </label>
+            <label>
+              类别
+              <select name="category">
+                <option value="top">上衣</option>
+                <option value="bottom">裤子</option>
+                <option value="outer">外套</option>
+                <option value="shoes">鞋子</option>
+                <option value="accessory">配饰</option>
+              </select>
+            </label>
+            <label>
+              颜色
+              <input name="color" />
+            </label>
+            <label>
+              材质
+              <input name="material" />
+            </label>
+            <label>
+              保暖
+              <input name="warmth" type="number" min="1" max="5" />
+            </label>
+            <label>
+              偏好
+              <input name="favorite_score" type="number" min="1" max="5" />
+            </label>
+            <label>
+              季节
+              <input name="season" />
+            </label>
+            <label>
+              场景
+              <input name="occasion" />
+            </label>
+            <div id="reviewConfidence" class="confidence-card"></div>
+            <div class="review-actions">
+              <button id="retakeBtn" class="secondary-btn" type="button">重拍</button>
+              <button id="saveReviewBtn" class="primary-btn" type="submit">确认入库</button>
+            </div>
+          </form>
         </section>
-        <div id="mirrorPanel" class="mirror-panel"></div>
-        <div id="recommendList" class="recommend-list"></div>
       </section>
 
       <section id="wardrobeView" class="view">
+        <section class="closet-header">
+          <div>
+            <p class="eyebrow">Closet</p>
+            <h2>衣物库</h2>
+          </div>
+          <button id="closetRefreshBtn" class="icon-button" type="button">刷新</button>
+        </section>
         <div id="wardrobeGrid" class="wardrobe-grid"></div>
       </section>
     </main>
+
+    <nav class="bottom-nav" aria-label="主导航">
+      <button class="nav-item active" data-view="today" type="button"><span>今日</span></button>
+      <button class="nav-item" data-view="capture" type="button"><span>入库</span></button>
+      <button class="nav-item" data-view="wardrobe" type="button"><span>衣橱</span></button>
+    </nav>
 
     <div id="toast" class="toast" role="status"></div>
     <script src="/app.js"></script>

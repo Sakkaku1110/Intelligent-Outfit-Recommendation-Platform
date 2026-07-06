@@ -82,6 +82,31 @@ python smart-wardrobe-system\vision_lab\deploy_demo_model.py --model smart-wardr
 
 推送后，板子会优先使用这个固定衣柜模型识别比赛演示衣物。
 
+比赛现场更推荐直接在板子上训练，因为板子有 OpenCV，训练特征和推理特征完全一致：
+
+```powershell
+python smart-wardrobe-system\vision_lab\train_on_board.py --dataset smart-wardrobe-system\vision_lab\demo_dataset
+```
+
+## 2.1 云边协同主体提取
+
+推荐申请 Google Gemini API key，并在板子服务环境中设置：
+
+```bash
+export GEMINI_API_KEY="你的 key"
+export GEMINI_MODEL="gemini-2.5-flash"
+```
+
+如果要先处理已经采集好的数据集：
+
+```powershell
+$env:GEMINI_API_KEY="你的 key"
+python smart-wardrobe-system\vision_lab\cloud_preprocess_dataset.py --dataset smart-wardrobe-system\vision_lab\demo_dataset --out smart-wardrobe-system\vision_lab\demo_dataset_cloud --fallback-copy
+python smart-wardrobe-system\vision_lab\train_on_board.py --dataset smart-wardrobe-system\vision_lab\demo_dataset_cloud
+```
+
+如果没有配置 key，板端会自动回退到取景框裁剪，不影响入库演示。
+
 ## 3. 从板子同步已入库样本
 
 如果已经在智能衣柜 App 里入库过衣服，可以同步出来做评测：

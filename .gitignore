@@ -10,6 +10,8 @@ smart-wardrobe-system/vision_lab/samples/
 smart-wardrobe-system/vision_lab/samples_augmented/
 smart-wardrobe-system/vision_lab/tmp_train_check/
 smart-wardrobe-system/vision_lab/tmp_studio_check/
+smart-wardrobe-system/vision_lab/tmp_cloud_check/
+smart-wardrobe-system/vision_lab/demo_dataset_cloud/
 
 # Local screenshots and temporary captures
 *.png
