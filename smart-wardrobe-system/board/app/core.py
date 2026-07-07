@@ -24,6 +24,8 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from .spectral_material import classify_material, has_as7341_channels
+
 
 CATEGORY_ALIASES = {
     "top": "top",
@@ -1531,6 +1533,8 @@ class RecommendationEngine:
 def save_ws63_payload(path: pathlib.Path, payload: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(payload)
     data["received_at"] = now_iso()
+    if has_as7341_channels(data):
+        data["material_prediction"] = classify_material(data)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return data
