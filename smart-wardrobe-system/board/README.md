@@ -5,9 +5,10 @@ This backend runs on HiEulerPI/SS928 and provides:
 - clothing database based on SQLite
 - camera-based clothing capture through `/dev/video0` and `fswebcam`
 - rule-based image analysis for color, category and rough material hints
+- rule-based GY-AS7341 spectral material hints from WS63 JSON packets
 - explainable outfit recommendation
 - internet weather lookup through Open-Meteo
-- placeholder API for future WS63 sensor packets
+- WS63 sensor packet ingestion through `/api/ws63/sensor`
 - static mobile web app hosting
 
 ## Run on the board
@@ -40,10 +41,22 @@ curl -X POST http://127.0.0.1:8000/api/clothes/capture \
   -d '{"name":"","category":"auto","season":"spring_autumn","occasion":"school,casual","auto_analyze":true}'
 ```
 
-WS63 placeholder:
+WS63 + GY-AS7341 spectral material check:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/ws63/sensor \
   -H 'Content-Type: application/json' \
-  -d '{"device":"WS63","temperature":26.5,"material_feature":[0.12,0.34,0.56]}'
+  -d '{"device":"WS63","sensor":"GY-AS7341","f1":90,"f2":110,"f3":120,"f4":95,"f5":70,"f6":52,"f7":35,"f8":28,"clear":670,"nir":135}'
+```
+
+The response and `data/ws63_latest.json` include `material_prediction`, for
+example `denim`, `cotton`, `linen`, `wool`, `leather`, `silk_satin` or
+`polyester`. If the AS7341 signal is too weak, the result is
+`unknown_low_light`; re-scan with a fixed white light source and keep the sensor
+close to the fabric.
+
+You can also classify a saved serial JSONL file directly:
+
+```bash
+python tools/classify_as7341_material.py ./as7341_samples.jsonl
 ```
