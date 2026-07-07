@@ -144,6 +144,21 @@
               场景
               <input name="occasion" />
             </label>
+            <section class="commerce-box">
+              <div class="commerce-head">
+                <strong>淘宝商家图</strong>
+                <button id="reviewTaobaoBtn" class="secondary-btn small-btn" type="button">导入展示图</button>
+              </div>
+              <label>
+                淘宝链接
+                <input id="reviewTaobaoLink" name="source_url" placeholder="粘贴 e.tb.cn / item.taobao.com 链接" />
+              </label>
+              <label>
+                商家图片链接
+                <input id="reviewMerchantImage" name="merchant_image_url" placeholder="可选：淘宝链接无法自动取图时粘贴图片地址" />
+              </label>
+              <p id="reviewTaobaoStatus" class="commerce-hint"></p>
+            </section>
             <div id="reviewConfidence" class="confidence-card"></div>
             <div class="review-actions">
               <button id="retakeBtn" class="secondary-btn" type="button">重拍</button>
@@ -199,6 +214,12 @@
           <input name="id" type="hidden" />
           <input name="image_url" type="hidden" />
           <input name="image_path" type="hidden" />
+          <input name="display_image_url" type="hidden" />
+          <input name="display_image_path" type="hidden" />
+          <input name="source_platform" type="hidden" />
+          <input name="source_item_id" type="hidden" />
+          <input name="source_title" type="hidden" />
+          <input name="merchant_image_path" type="hidden" />
           <label>
             名称
             <input name="name" />
@@ -241,6 +262,21 @@
             备注
             <input name="note" />
           </label>
+          <section class="commerce-box">
+            <div class="commerce-head">
+              <strong>淘宝商家图</strong>
+              <button id="editorTaobaoBtn" class="secondary-btn small-btn" type="button">导入展示图</button>
+            </div>
+            <label>
+              淘宝链接
+              <input id="editorTaobaoLink" name="source_url" placeholder="粘贴 e.tb.cn / item.taobao.com 链接" />
+            </label>
+            <label>
+              商家图片链接
+              <input id="editorMerchantImage" name="merchant_image_url" placeholder="可选：粘贴商品主图地址" />
+            </label>
+            <p id="editorTaobaoStatus" class="commerce-hint"></p>
+          </section>
           <div class="review-actions">
             <button id="deleteEditBtn" class="secondary-btn danger" type="button">删除</button>
             <button id="saveEditBtn" class="primary-btn" type="submit">保存</button>

@@ -8,6 +8,7 @@ the HiEulerPI/SS928 board with only Python 3 and a few small Linux tools.
 from __future__ import annotations
 
 import base64
+import hashlib
 import itertools
 import json
 import os
@@ -476,6 +477,336 @@ def make_display_image(
     }
 
 
+def make_merchant_display_image(
+    image_path: str,
+    output_dir: pathlib.Path,
+    name: Any = "",
+) -> Dict[str, str]:
+    """Crop a merchant product photo into a clean white product-card image."""
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+    except Exception:
+        return {}
+
+    source = pathlib.Path(image_path)
+    image = cv2_read_image(cv2, np, source)
+    if image is None:
+        return {}
+
+    h, w = image.shape[:2]
+    if h <= 1 or w <= 1:
+        return {}
+
+    border = np.concatenate(
+        [
+            image[: max(1, h // 16), :, :].reshape(-1, 3),
+            image[h - max(1, h // 16) :, :, :].reshape(-1, 3),
+            image[:, : max(1, w // 16), :].reshape(-1, 3),
+            image[:, w - max(1, w // 16) :, :].reshape(-1, 3),
+        ],
+        axis=0,
+    )
+    bg = np.median(border, axis=0).astype("uint8")
+    diff = np.linalg.norm(image.astype("int16") - bg.astype("int16"), axis=2)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    mask = ((diff > 18) | (gray < 246)).astype("uint8") * 255
+    kernel = np.ones((7, 7), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours = [contour for contour in contours if cv2.contourArea(contour) > max(120, w * h * 0.003)]
+    crop_mask = None
+    if contours:
+        xs, ys, xe, ye = [], [], [], []
+        for contour in contours:
+            x, y, cw, ch = cv2.boundingRect(contour)
+            xs.append(x)
+            ys.append(y)
+            xe.append(x + cw)
+            ye.append(y + ch)
+        x1, y1, x2, y2 = min(xs), min(ys), max(xe), max(ye)
+        pad_x = int((x2 - x1) * 0.08)
+        pad_y = int((y2 - y1) * 0.08)
+        x1 = max(0, x1 - pad_x)
+        y1 = max(0, y1 - pad_y)
+        x2 = min(w, x2 + pad_x)
+        y2 = min(h, y2 + pad_y)
+        crop = image[y1:y2, x1:x2]
+        crop_mask = mask[y1:y2, x1:x2]
+    else:
+        crop = image
+
+    ch, cw = crop.shape[:2]
+    canvas_h, canvas_w = 840, 720
+    canvas = np.full((canvas_h, canvas_w, 3), (248, 248, 250), dtype=np.uint8)
+    scale = min(canvas_w * 0.78 / max(1, cw), canvas_h * 0.72 / max(1, ch), 1.7)
+    new_w = max(1, int(cw * scale))
+    new_h = max(1, int(ch * scale))
+    resized = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)
+    x = (canvas_w - new_w) // 2
+    y = max(46, (canvas_h - new_h) // 2 - 22)
+
+    shadow = np.zeros((canvas_h, canvas_w), dtype=np.uint8)
+    cv2.rectangle(shadow, (x + 18, y + 24), (x + new_w + 18, y + new_h + 24), 255, -1)
+    shadow = cv2.GaussianBlur(shadow, (55, 55), 0)
+    alpha = (shadow.astype("float32") / 255.0 * 0.12)[:, :, None]
+    canvas[:] = (canvas.astype("float32") * (1 - alpha) + np.array((210, 211, 218), dtype="float32") * alpha).astype("uint8")
+    if crop_mask is not None:
+        resized_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        coverage = float(np.count_nonzero(resized_mask > 24)) / float(max(1, new_w * new_h))
+        if 0.04 <= coverage <= 0.82:
+            resized_mask = cv2.GaussianBlur(resized_mask, (9, 9), 0)
+            object_alpha = (resized_mask.astype("float32") / 255.0)[:, :, None]
+            region = canvas[y : y + new_h, x : x + new_w].astype("float32")
+            canvas[y : y + new_h, x : x + new_w] = (region * (1 - object_alpha) + resized.astype("float32") * object_alpha).astype("uint8")
+        else:
+            canvas[y : y + new_h, x : x + new_w] = resized
+    else:
+        canvas[y : y + new_h, x : x + new_w] = resized
+
+    output_dir = pathlib.Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_name = "%s_merchant_display.jpg" % source.stem
+    output_path = output_dir / output_name
+    cv2_write_image(cv2, output_path, canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 94])
+    return {
+        "display_image_path": str(output_path),
+        "display_image_url": "/uploads/%s" % output_name,
+    }
+
+
+def normalize_remote_image_url(url: Any) -> str:
+    value = str(url or "").strip()
+    if value.startswith("//"):
+        value = "https:" + value
+    if value.startswith("http://") or value.startswith("https://"):
+        return value
+    return ""
+
+
+def looks_like_image_url(url: Any) -> bool:
+    value = normalize_remote_image_url(url).lower().split("?", 1)[0]
+    return value.endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp"))
+
+
+def download_remote_image(url: str, output_dir: pathlib.Path, prefix: str = "merchant") -> Dict[str, str]:
+    remote_url = normalize_remote_image_url(url)
+    if not remote_url:
+        return {}
+    parsed = urllib.parse.urlparse(remote_url)
+    suffix = pathlib.Path(parsed.path).suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+        suffix = ".jpg"
+    digest = hashlib.sha1(remote_url.encode("utf-8")).hexdigest()[:14]
+    filename = "%s_%s%s" % (re.sub(r"[^A-Za-z0-9_-]+", "_", prefix)[:28] or "merchant", digest, suffix)
+    output_dir = pathlib.Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / filename
+    request = urllib.request.Request(
+        remote_url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer": "https://www.taobao.com/",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        data = response.read(8 * 1024 * 1024 + 1)
+        if len(data) > 8 * 1024 * 1024:
+            raise ValueError("merchant image is larger than 8MB")
+    output_path.write_bytes(data)
+    return {
+        "merchant_image_url": remote_url,
+        "merchant_image_path": str(output_path),
+    }
+
+
+def extract_taobao_item_id(url: Any) -> str:
+    value = urllib.parse.unquote(str(url or ""))
+    patterns = [
+        r"[?&]id=(\d{6,})",
+        r"[?&]itemId=(\d{6,})",
+        r"[?&]item_id=(\d{6,})",
+        r"[?&]itemNumId=(\d{6,})",
+        r"[?&]shareDetailItemId=(\d{6,})",
+        r"/i(\d{6,})\.htm",
+        r"item/(\d{6,})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, value, re.I)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _extract_first_url(text: str) -> str:
+    match = re.search(r"https?://[^\s'\"<>]+", text or "")
+    return match.group(0).rstrip("。；;，,") if match else ""
+
+
+def _extract_js_url(html_text: str) -> str:
+    for pattern in [
+        r"\burl\s*=\s*'([^']+)'",
+        r'\burl\s*=\s*"([^"]+)"',
+        r'"url"\s*:\s*"([^"]+)"',
+    ]:
+        match = re.search(pattern, html_text)
+        if match:
+            return match.group(1).replace("\\/", "/")
+    return ""
+
+
+TAOBAO_GENERIC_IMAGE_MARKERS = (
+    "gtms01.alicdn.com/tps/i1/TB1lcdUIF",
+    "gtms02.alicdn.com/tps/i2/TB1OkV4",
+)
+
+
+def _is_generic_taobao_image(url: str) -> bool:
+    normalized = url.lower()
+    return any(marker.lower() in normalized for marker in TAOBAO_GENERIC_IMAGE_MARKERS)
+
+
+def _find_image_urls(text: str) -> List[str]:
+    results: List[str] = []
+    patterns = [
+        r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\']',
+        r'"(?:pict_url|picUrl|pic_url|image|img|url)"\s*:\s*"((?:https?:)?//[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
+        r"((?:https?:)?//[^'\"<>\\]+?\.(?:jpg|jpeg|png|webp)(?:_[^'\"<>\\]*)?)",
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, re.I):
+            url = normalize_remote_image_url(match.group(1).replace("\\/", "/"))
+            if url and not _is_generic_taobao_image(url) and url not in results:
+                results.append(url)
+    return results[:12]
+
+
+def _find_title(text: str) -> str:
+    for pattern in [
+        r'<meta[^>]+(?:property|name)=["\']og:title["\'][^>]+content=["\']([^"\']+)',
+        r"<title>(.*?)</title>",
+    ]:
+        match = re.search(pattern, text, re.I | re.S)
+        if match:
+            return re.sub(r"\s+", " ", match.group(1)).strip()[:120]
+    return ""
+
+
+class TaobaoResolver:
+    def __init__(self, app_key: str = "", app_secret: str = ""):
+        self.app_key = app_key or os.environ.get("TAOBAO_APP_KEY", "")
+        self.app_secret = app_secret or os.environ.get("TAOBAO_APP_SECRET", "")
+
+    def resolve(self, url_or_text: str) -> Dict[str, Any]:
+        source_url = _extract_first_url(url_or_text) or str(url_or_text or "").strip()
+        if not source_url:
+            raise ValueError("taobao link is empty")
+        result: Dict[str, Any] = {
+            "source_platform": "taobao",
+            "source_url": source_url,
+            "source_item_id": extract_taobao_item_id(source_url),
+            "source_title": "",
+            "candidate_images": [],
+            "target_url": "",
+            "resolved_by": "link",
+        }
+        html_text = ""
+        try:
+            html_text = self._fetch_text(source_url)
+            target_url = _extract_js_url(html_text)
+            if target_url:
+                result["target_url"] = target_url
+                result["source_item_id"] = result["source_item_id"] or extract_taobao_item_id(target_url)
+            result["candidate_images"] = _find_image_urls(html_text)
+            result["source_title"] = _find_title(html_text)
+        except Exception as exc:
+            result["warning"] = "short link page fetch failed: %s" % exc
+
+        item_id = str(result.get("source_item_id") or "")
+        if item_id and self.app_key and self.app_secret:
+            try:
+                api_data = self._resolve_with_top_api(item_id)
+                result.update({k: v for k, v in api_data.items() if v})
+                result["resolved_by"] = "taobao_open_api"
+            except Exception as exc:
+                result["api_warning"] = str(exc)
+
+        if item_id and not result.get("candidate_images"):
+            try:
+                detail_url = "https://h5.m.taobao.com/awp/core/detail.htm?id=%s" % urllib.parse.quote(item_id)
+                detail_html = self._fetch_text(detail_url)
+                result["candidate_images"] = _find_image_urls(detail_html)
+                result["source_title"] = result.get("source_title") or _find_title(detail_html)
+                result["resolved_by"] = result.get("resolved_by") or "h5_detail"
+            except Exception as exc:
+                result["detail_warning"] = str(exc)
+
+        return result
+
+    def _fetch_text(self, url: str) -> str:
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.read(900_000).decode("utf-8", "ignore")
+
+    def _resolve_with_top_api(self, item_id: str) -> Dict[str, Any]:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        params = {
+            "method": "taobao.tbk.item.info.upgrade.get",
+            "app_key": self.app_key,
+            "timestamp": timestamp,
+            "format": "json",
+            "v": "2.0",
+            "sign_method": "md5",
+            "item_id": item_id,
+        }
+        params["sign"] = self._sign(params)
+        query = urllib.parse.urlencode(params)
+        request = urllib.request.Request(
+            "https://eco.taobao.com/router/rest?%s" % query,
+            headers={"User-Agent": "SmartWardrobe/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8", "ignore"))
+        if "error_response" in payload:
+            raise ValueError(payload["error_response"].get("sub_msg") or payload["error_response"].get("msg") or "taobao api error")
+        images = _recursive_find_values(payload, {"pict_url", "pic_url", "url"})
+        title_values = _recursive_find_values(payload, {"title", "short_title"})
+        item_urls = _recursive_find_values(payload, {"item_url", "click_url"})
+        return {
+            "candidate_images": [normalize_remote_image_url(value) for value in images if looks_like_image_url(value)][:12],
+            "source_title": title_values[0][:120] if title_values else "",
+            "target_url": item_urls[0] if item_urls else "",
+        }
+
+    def _sign(self, params: Dict[str, str]) -> str:
+        raw = self.app_secret + "".join("%s%s" % (key, params[key]) for key in sorted(params)) + self.app_secret
+        return hashlib.md5(raw.encode("utf-8")).hexdigest().upper()
+
+
+def _recursive_find_values(value: Any, keys: set[str]) -> List[str]:
+    found: List[str] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if str(key) in keys and isinstance(child, str):
+                found.append(child)
+            else:
+                found.extend(_recursive_find_values(child, keys))
+    elif isinstance(value, list):
+        for child in value:
+            found.extend(_recursive_find_values(child, keys))
+    return found
+
+
 class CloudPreprocessor:
     """Optional cloud subject extraction before edge-side recognition."""
 
@@ -810,6 +1141,12 @@ class WardrobeDB:
                     image_path TEXT DEFAULT '',
                     display_image_url TEXT DEFAULT '',
                     display_image_path TEXT DEFAULT '',
+                    source_platform TEXT DEFAULT '',
+                    source_url TEXT DEFAULT '',
+                    source_item_id TEXT DEFAULT '',
+                    source_title TEXT DEFAULT '',
+                    merchant_image_url TEXT DEFAULT '',
+                    merchant_image_path TEXT DEFAULT '',
                     ai_analysis TEXT DEFAULT '',
                     note TEXT DEFAULT '',
                     created_at TEXT NOT NULL,
@@ -831,6 +1168,12 @@ class WardrobeDB:
             "ai_analysis": "TEXT DEFAULT ''",
             "display_image_url": "TEXT DEFAULT ''",
             "display_image_path": "TEXT DEFAULT ''",
+            "source_platform": "TEXT DEFAULT ''",
+            "source_url": "TEXT DEFAULT ''",
+            "source_item_id": "TEXT DEFAULT ''",
+            "source_title": "TEXT DEFAULT ''",
+            "merchant_image_url": "TEXT DEFAULT ''",
+            "merchant_image_path": "TEXT DEFAULT ''",
         }
         for name, definition in columns.items():
             if name not in existing:
@@ -871,8 +1214,9 @@ class WardrobeDB:
                     warmth, formality, favorite_score, category_confidence,
                     color_confidence, material_confidence, wear_count, image_url,
                     image_path, display_image_url, display_image_path, ai_analysis,
-                    note, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_platform, source_url, source_item_id, source_title,
+                    merchant_image_url, merchant_image_path, note, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item["name"],
@@ -894,6 +1238,12 @@ class WardrobeDB:
                     item["display_image_url"],
                     item["display_image_path"],
                     item["ai_analysis"],
+                    item["source_platform"],
+                    item["source_url"],
+                    item["source_item_id"],
+                    item["source_title"],
+                    item["merchant_image_url"],
+                    item["merchant_image_path"],
                     item["note"],
                     created,
                     created,
@@ -921,7 +1271,8 @@ class WardrobeDB:
                     favorite_score=?, category_confidence=?, color_confidence=?,
                     material_confidence=?, image_url=?, image_path=?,
                     display_image_url=?, display_image_path=?, ai_analysis=?,
-                    note=?, updated_at=?
+                    source_platform=?, source_url=?, source_item_id=?, source_title=?,
+                    merchant_image_url=?, merchant_image_path=?, note=?, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -943,6 +1294,12 @@ class WardrobeDB:
                     cleaned["display_image_url"],
                     cleaned["display_image_path"],
                     cleaned["ai_analysis"],
+                    cleaned["source_platform"],
+                    cleaned["source_url"],
+                    cleaned["source_item_id"],
+                    cleaned["source_title"],
+                    cleaned["merchant_image_url"],
+                    cleaned["merchant_image_path"],
                     cleaned["note"],
                     now_iso(),
                     item_id,
@@ -1041,6 +1398,12 @@ class WardrobeDB:
             "image_path": str(payload.get("image_path") or "").strip()[:240],
             "display_image_url": str(payload.get("display_image_url") or "").strip()[:240],
             "display_image_path": str(payload.get("display_image_path") or "").strip()[:240],
+            "source_platform": str(payload.get("source_platform") or "").strip()[:40],
+            "source_url": str(payload.get("source_url") or "").strip()[:800],
+            "source_item_id": str(payload.get("source_item_id") or "").strip()[:80],
+            "source_title": str(payload.get("source_title") or "").strip()[:160],
+            "merchant_image_url": str(payload.get("merchant_image_url") or "").strip()[:800],
+            "merchant_image_path": str(payload.get("merchant_image_path") or "").strip()[:240],
             "ai_analysis": self._normalize_analysis(payload.get("ai_analysis")),
             "note": str(payload.get("note") or "").strip()[:240],
         }

@@ -59,12 +59,20 @@ const els = {
   edgeDetail: document.querySelector("#edgeDetail"),
   reviewForm: document.querySelector("#reviewForm"),
   reviewConfidence: document.querySelector("#reviewConfidence"),
+  reviewTaobaoLink: document.querySelector("#reviewTaobaoLink"),
+  reviewMerchantImage: document.querySelector("#reviewMerchantImage"),
+  reviewTaobaoBtn: document.querySelector("#reviewTaobaoBtn"),
+  reviewTaobaoStatus: document.querySelector("#reviewTaobaoStatus"),
   retakeBtn: document.querySelector("#retakeBtn"),
   saveReviewBtn: document.querySelector("#saveReviewBtn"),
   itemEditor: document.querySelector("#itemEditor"),
   editorTitle: document.querySelector("#editorTitle"),
   editorPreview: document.querySelector("#editorPreview"),
   itemEditForm: document.querySelector("#itemEditForm"),
+  editorTaobaoLink: document.querySelector("#editorTaobaoLink"),
+  editorMerchantImage: document.querySelector("#editorMerchantImage"),
+  editorTaobaoBtn: document.querySelector("#editorTaobaoBtn"),
+  editorTaobaoStatus: document.querySelector("#editorTaobaoStatus"),
   closeEditor: document.querySelector("#closeEditorBtn"),
   deleteEdit: document.querySelector("#deleteEditBtn"),
   saveEdit: document.querySelector("#saveEditBtn"),
@@ -308,6 +316,14 @@ function normalizeDraft(draft) {
     favorite_score: draft.favorite_score || 4,
     season: draft.season || "summer_light,spring_autumn",
     occasion: draft.occasion || `${els.occasion.value || "school"},casual`,
+    source_platform: draft.source_platform || "",
+    source_url: draft.source_url || "",
+    source_item_id: draft.source_item_id || "",
+    source_title: draft.source_title || "",
+    merchant_image_url: draft.merchant_image_url || "",
+    merchant_image_path: draft.merchant_image_path || "",
+    display_image_url: draft.display_image_url || "",
+    display_image_path: draft.display_image_path || "",
   };
 }
 
@@ -318,7 +334,7 @@ function fillReviewForm() {
   const cloud = capture.cloud_preprocess || {};
   const timing = state.pendingTiming || {};
   els.reviewTitle.textContent = draft.name || "确认这件衣物";
-  els.reviewImage.src = imageUrl(capture.image_url || draft.image_url || "");
+  els.reviewImage.src = imageUrl(displayImageUrl(draft) || capture.image_url || draft.image_url || "");
   els.reviewBadge.textContent = timing.total_ms ? `${(timing.total_ms / 1000).toFixed(1)}s` : "待确认";
   els.cloudDetail.textContent = cloud.used
     ? `已裁剪 ${percent(cloud.confidence)} · ${msText(timing.cloud_preprocess_ms || cloud.elapsed_ms)}`
@@ -331,12 +347,53 @@ function fillReviewForm() {
     const input = els.reviewForm.elements[key];
     if (input) input.value = value ?? "";
   }
+  if (els.reviewTaobaoStatus) {
+    els.reviewTaobaoStatus.textContent = draft.display_image_url ? "已生成商家图展示卡" : "";
+  }
   els.reviewConfidence.innerHTML = `
     <span>总耗时 ${msText(timing.total_ms)}</span>
     <span>类别 ${percent(analysis?.confidence?.category)}</span>
     <span>颜色 ${percent(analysis?.confidence?.color)}</span>
     <span>材质 ${percent(analysis?.confidence?.material)}</span>
   `;
+}
+
+async function importTaobaoForReview() {
+  if (!state.pendingDraft || state.busy) return;
+  const form = Object.fromEntries(new FormData(els.reviewForm).entries());
+  const payload = {
+    ...state.pendingDraft,
+    ...form,
+    source_url: els.reviewTaobaoLink?.value || form.source_url || "",
+    merchant_image_url: els.reviewMerchantImage?.value || form.merchant_image_url || "",
+  };
+  if (!payload.source_url && !payload.merchant_image_url) {
+    showToast("请先粘贴淘宝链接或商家图片链接");
+    return;
+  }
+  setBusy(els.reviewTaobaoBtn, true, "处理中");
+  if (els.reviewTaobaoStatus) {
+    els.reviewTaobaoStatus.textContent = "正在解析淘宝链接并生成展示卡...";
+  }
+  try {
+    const result = await api("/api/commerce/taobao/resolve", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    state.pendingDraft = normalizeDraft({
+      ...state.pendingDraft,
+      ...(result.patch || {}),
+    });
+    fillReviewForm();
+    const message = result.ok ? "已导入淘宝商家图" : (result.message || "已解析链接，未自动拿到商品图");
+    if (els.reviewTaobaoStatus) els.reviewTaobaoStatus.textContent = message;
+    showToast(message);
+  } catch (error) {
+    if (els.reviewTaobaoStatus) els.reviewTaobaoStatus.textContent = error.message;
+    showToast(error.message);
+  } finally {
+    setBusy(els.reviewTaobaoBtn, false, "导入展示图");
+  }
 }
 
 async function saveReviewedItem(event) {
@@ -397,6 +454,14 @@ function openEditor(item) {
     note: "",
     image_url: "",
     image_path: "",
+    display_image_url: "",
+    display_image_path: "",
+    source_platform: "",
+    source_url: "",
+    source_item_id: "",
+    source_title: "",
+    merchant_image_url: "",
+    merchant_image_path: "",
   };
   els.editorTitle.textContent = isNew ? "新增衣物" : "编辑衣物";
   fillEditorForm(state.editingItem);
@@ -417,6 +482,55 @@ function fillEditorForm(item) {
   const url = displayImageUrl(item);
   els.editorPreview.src = url ? imageUrl(url) : "";
   els.editorPreview.hidden = !url;
+  if (els.editorTaobaoStatus) {
+    els.editorTaobaoStatus.textContent = item.display_image_url ? "已生成商家图展示卡" : "";
+  }
+}
+
+async function importTaobaoForEditor() {
+  if (!state.editingItem || state.busy) return;
+  const form = Object.fromEntries(new FormData(els.itemEditForm).entries());
+  const payload = {
+    ...state.editingItem,
+    ...form,
+    source_url: els.editorTaobaoLink?.value || form.source_url || "",
+    merchant_image_url: els.editorMerchantImage?.value || form.merchant_image_url || "",
+  };
+  if (!payload.source_url && !payload.merchant_image_url) {
+    showToast("请先粘贴淘宝链接或商家图片链接");
+    return;
+  }
+  setBusy(els.editorTaobaoBtn, true, "处理中");
+  if (els.editorTaobaoStatus) {
+    els.editorTaobaoStatus.textContent = "正在生成商家图展示卡...";
+  }
+  try {
+    if (payload.id) {
+      const result = await api(`/api/clothes/${payload.id}/taobao`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      state.editingItem = result.item || { ...state.editingItem, ...(result.patch || {}) };
+      const index = state.clothes.findIndex((item) => Number(item.id) === Number(state.editingItem.id));
+      if (index >= 0) state.clothes[index] = state.editingItem;
+      fillEditorForm(state.editingItem);
+      renderWardrobe();
+      showToast(result.ok ? "已导入淘宝商家图" : (result.message || "已解析链接"));
+    } else {
+      const result = await api("/api/commerce/taobao/resolve", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      state.editingItem = { ...state.editingItem, ...(result.patch || {}) };
+      fillEditorForm(state.editingItem);
+      showToast(result.ok ? "已导入淘宝商家图" : (result.message || "已解析链接"));
+    }
+  } catch (error) {
+    if (els.editorTaobaoStatus) els.editorTaobaoStatus.textContent = error.message;
+    showToast(error.message);
+  } finally {
+    setBusy(els.editorTaobaoBtn, false, "导入展示图");
+  }
 }
 
 async function saveEditorItem(event) {
@@ -502,7 +616,7 @@ function imageUrl(url) {
 }
 
 function displayImageUrl(item) {
-  return item?.display_image_url || item?.image_url || "";
+  return item?.display_image_url || item?.merchant_image_url || item?.image_url || "";
 }
 
 function escapeHtml(value) {
@@ -535,8 +649,10 @@ els.closetCategory.addEventListener("change", () => {
   renderWardrobe();
 });
 els.analyzeCaptureBtn.addEventListener("click", analyzeCapture);
+els.reviewTaobaoBtn?.addEventListener("click", importTaobaoForReview);
 els.reviewForm.addEventListener("submit", saveReviewedItem);
 els.retakeBtn.addEventListener("click", () => activateView("capture"));
+els.editorTaobaoBtn?.addEventListener("click", importTaobaoForEditor);
 els.itemEditForm.addEventListener("submit", saveEditorItem);
 els.closeEditor.addEventListener("click", closeEditor);
 els.deleteEdit.addEventListener("click", () => deleteItem(state.editingItem?.id));

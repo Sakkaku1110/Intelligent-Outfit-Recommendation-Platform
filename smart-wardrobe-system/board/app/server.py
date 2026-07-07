@@ -25,9 +25,12 @@ from .core import (
     WardrobeDB,
     WeatherClient,
     crop_viewfinder_image,
+    download_remote_image,
     make_display_image,
+    make_merchant_display_image,
     merge_analysis_into_payload,
     save_ws63_payload,
+    TaobaoResolver,
 )
 
 
@@ -44,6 +47,7 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
     cloud_preprocessor: CloudPreprocessor
     analyzer: ImageAnalyzer
     recommender: RecommendationEngine
+    taobao: TaobaoResolver
 
     server_version = "SmartWardrobeHTTP/1.0"
 
@@ -210,6 +214,20 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                 payload = self.read_json(allow_empty=True)
                 count = self.db.seed_demo_items(force=bool(payload.get("force", False)))
                 self.send_json({"seeded": count, "count": self.db.count()})
+            elif path == "/api/commerce/taobao/resolve":
+                payload = self.read_json()
+                result = self.resolve_taobao_payload(payload)
+                self.send_json(result)
+            elif path.startswith("/api/clothes/") and path.endswith("/taobao"):
+                item_id = int(path.strip("/").split("/")[-2])
+                existing = self.db.get_clothing(item_id)
+                if not existing:
+                    self.send_json({"error": "clothing not found"}, HTTPStatus.NOT_FOUND)
+                    return
+                result = self.resolve_taobao_payload(self.read_json(), base_item=existing)
+                patch = result.get("patch", {})
+                item = self.db.update_clothing(item_id, {**existing, **patch})
+                self.send_json({"item": item, **result})
             elif path == "/api/ws63/sensor":
                 payload = self.read_json()
                 saved = save_ws63_payload(DATA_ROOT / "ws63_latest.json", payload)
@@ -254,6 +272,7 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
         return updated
 
     def apply_display_image(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        payload = self.apply_merchant_image(payload)
         image_path = str(payload.get("image_path") or "").strip()
         if not image_path or payload.get("display_image_url"):
             return payload
@@ -269,6 +288,82 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
         updated = dict(payload)
         updated.update(display)
         return updated
+
+    def apply_merchant_image(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if payload.get("display_image_url"):
+            return payload
+        image_path = str(payload.get("merchant_image_path") or "").strip()
+        if not image_path and payload.get("merchant_image_url"):
+            prefix = str(payload.get("source_item_id") or payload.get("name") or "merchant")
+            try:
+                downloaded = download_remote_image(str(payload.get("merchant_image_url")), UPLOAD_ROOT, prefix=prefix)
+            except Exception as exc:
+                updated = dict(payload)
+                updated["commerce_warning"] = str(exc)
+                return updated
+            updated = dict(payload)
+            updated.update(downloaded)
+            payload = updated
+            image_path = str(payload.get("merchant_image_path") or payload.get("image_path") or "").strip()
+        if not image_path:
+            return payload
+        display = make_merchant_display_image(
+            image_path,
+            UPLOAD_ROOT,
+            name=payload.get("name", ""),
+        )
+        if not display:
+            return payload
+        updated = dict(payload)
+        updated.update(display)
+        return updated
+
+    def resolve_taobao_payload(self, payload: Dict[str, Any], base_item: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        source_url = str(payload.get("source_url") or payload.get("taobao_url") or payload.get("url") or "").strip()
+        merchant_image_url = str(payload.get("merchant_image_url") or payload.get("image_url") or "").strip()
+        if not source_url and not merchant_image_url:
+            raise ValueError("taobao link or merchant image url is required")
+        source = self.taobao.resolve(source_url) if source_url else {
+            "source_platform": "taobao",
+            "source_url": "",
+            "source_item_id": "",
+            "source_title": "",
+            "candidate_images": [],
+            "resolved_by": "merchant_image_url",
+        }
+        candidate_images = list(source.get("candidate_images") or [])
+        selected_image = merchant_image_url or (candidate_images[0] if candidate_images else "")
+        patch: Dict[str, Any] = {
+            "source_platform": "taobao",
+            "source_url": source_url or str(source.get("source_url") or ""),
+            "source_item_id": str(source.get("source_item_id") or ""),
+            "source_title": str(source.get("source_title") or ""),
+            "merchant_image_url": selected_image,
+        }
+        if not patch["source_title"] and base_item:
+            patch["source_title"] = str(base_item.get("name") or "")
+        if selected_image:
+            temp_payload = {
+                **(base_item or {}),
+                **payload,
+                **patch,
+                "name": payload.get("name") or (base_item or {}).get("name") or patch["source_title"],
+                "display_image_url": "",
+                "display_image_path": "",
+            }
+            patch.update(self.apply_merchant_image(temp_payload))
+        result = {
+            "source": source,
+            "candidate_images": candidate_images,
+            "selected_image": selected_image,
+            "patch": patch,
+        }
+        if selected_image:
+            result["ok"] = bool(patch.get("display_image_url"))
+        else:
+            result["ok"] = False
+            result["message"] = "Taobao link was parsed, but no merchant image was available without Open Platform API; paste a merchant image URL to create the display card."
+        return result
 
     def ensure_display_images(self) -> None:
         for item in self.db.list_clothes():
@@ -424,6 +519,7 @@ def make_handler(db_path: pathlib.Path, camera_device: str) -> type[SmartWardrob
     SmartWardrobeHandler.cloud_preprocessor = CloudPreprocessor(UPLOAD_ROOT)
     SmartWardrobeHandler.analyzer = ImageAnalyzer()
     SmartWardrobeHandler.recommender = RecommendationEngine()
+    SmartWardrobeHandler.taobao = TaobaoResolver()
     return SmartWardrobeHandler
 
 
