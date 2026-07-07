@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "id": "top_001",
+      "name": "Dataset top",
+      "category": "tops",
+      "image": "../data/polyvore-outfits/images/151019892.jpg"
+    },
+    {
+      "id": "bottom_001",
+      "name": "Dataset bottom",
+      "category": "bottoms",
+      "image": "../data/polyvore-outfits/images/212839321.jpg"
+    },
+    {
+      "id": "shoes_001",
+      "name": "Dataset shoes",
+      "category": "shoes",
+      "image": "../data/polyvore-outfits/images/209478763.jpg"
+    }
+  ]
+}

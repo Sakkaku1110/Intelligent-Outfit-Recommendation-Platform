@@ -1,0 +1,10 @@
+numpy
+pandas
+pyarrow
+Pillow
+pytest
+scikit-learn
+torch
+torchvision
+tqdm
+rembg[cpu]
