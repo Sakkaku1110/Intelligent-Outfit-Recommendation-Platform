@@ -21,20 +21,22 @@ http://192.168.137.2:8000
 
 开发板现在在 `192.168.137.x` 网段，手机/平板通常在 Wi-Fi 网段。两边能不能互相访问，取决于 Windows 共享网络、路由和防火墙。电脑中转服务会让手机/平板访问电脑，再由电脑转发到开发板，稳定性更高。
 
+当前 `pc_gateway.py` 会直接从电脑提供最新版触控端页面，`/api/*`、`/uploads/*`、摄像头流和入库请求再转发到开发板。这样即使开发板上的静态页面还没有同步，手机/平板打开 `http://192.168.43.9:8088` 也能看到最新 UI。
+
 ## 启动电脑中转服务
 
 在这台电脑的 PowerShell 里执行：
 
 ```powershell
 cd C:\Users\t1507\Documents\嵌入式竞赛
-python smart-wardrobe-system\pc_gateway.py --host 0.0.0.0 --port 8088 --board http://192.168.137.2
+python smart-wardrobe-system\pc_gateway.py --host 0.0.0.0 --port 8088 --board http://192.168.137.2:8000
 ```
 
 如果想隐藏到后台运行：
 
 ```powershell
 cd C:\Users\t1507\Documents\嵌入式竞赛
-Start-Process -WindowStyle Hidden -FilePath python -ArgumentList 'smart-wardrobe-system\pc_gateway.py --host 0.0.0.0 --port 8088 --board http://192.168.137.2'
+Start-Process -WindowStyle Hidden -FilePath python -ArgumentList 'smart-wardrobe-system\pc_gateway.py --host 0.0.0.0 --port 8088 --board http://192.168.137.2:8000'
 ```
 
 ## 检查是否成功

@@ -31,7 +31,7 @@
       "name": "酒红卫衣",
       "category": "top",
       "category_label": "上衣/卫衣",
-      "color": "purple",
+      "color": "red",
       "color_label": "酒红/紫红",
       "material": "cotton",
       "material_label": "棉/保暖",
@@ -90,6 +90,32 @@
       "warmth": 4,
       "season": "spring_autumn,winter",
       "occasion": "school,commute,casual"
+    },
+    {
+      "id": "black_boots",
+      "name": "黑色鞋",
+      "category": "shoes",
+      "category_label": "鞋子",
+      "color": "black",
+      "color_label": "黑色",
+      "material": "leather",
+      "material_label": "皮革/厚底",
+      "warmth": 3,
+      "season": "spring_autumn,winter",
+      "occasion": "school,commute,casual"
+    },
+    {
+      "id": "white_sneakers",
+      "name": "白色运动鞋",
+      "category": "shoes",
+      "category_label": "鞋子",
+      "color": "white",
+      "color_label": "白色/浅灰",
+      "material": "polyester",
+      "material_label": "运动/网面/合成革",
+      "warmth": 2,
+      "season": "summer_light,summer_hot,spring_autumn",
+      "occasion": "school,commute,casual,sport"
     }
   ]
 }

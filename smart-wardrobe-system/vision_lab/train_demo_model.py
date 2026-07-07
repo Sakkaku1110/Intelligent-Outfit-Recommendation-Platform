@@ -30,9 +30,20 @@ def feature_vector(image_path: Path) -> list[float]:
         import cv2  # type: ignore
         import numpy as np  # type: ignore
 
-        image = cv2.imread(str(image_path))
+        path_text = str(image_path)
+        image = cv2.imread(path_text) if path_text.isascii() else None
+        if image is None:
+            try:
+                data = np.fromfile(path_text, dtype=np.uint8)
+                image = cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
+            except Exception:
+                image = None
         if image is None:
             raise UnidentifiedImageError(str(image_path))
+        height, width = image.shape[:2]
+        scale = 640.0 / max(height, width)
+        if scale < 1.0:
+            image = cv2.resize(image, (int(width * scale), int(height * scale)))
         small = cv2.resize(image, (96, 96))
         rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB).astype("float32") / 255.0
         hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)

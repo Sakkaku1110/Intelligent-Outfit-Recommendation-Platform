@@ -35,6 +35,7 @@ def main() -> int:
 
     rows = list(csv.DictReader(labels_path.open("r", encoding="utf-8-sig")))
     results = []
+    item_ok = 0
     category_ok = 0
     color_ok = 0
     confusion: dict[str, Counter[str]] = defaultdict(Counter)
@@ -43,17 +44,22 @@ def main() -> int:
         image_path = image_root / row["image_path"]
         expected_category = normalize_category(row.get("category"))
         expected_color_family = color_family(row.get("color"))
+        expected_label_id = norm_text(row.get("label_id", ""))
         analysis = analyzer.analyze(str(image_path), focus_viewfinder=focus_viewfinder)
+        predicted_label_id = norm_text(analysis.get("item_id", ""))
         predicted_category = normalize_category(analysis.get("category"))
         predicted_color_family = color_family(analysis.get("color"))
+        item_match = bool(expected_label_id) and predicted_label_id == expected_label_id
         category_match = predicted_category == expected_category
         color_match = predicted_color_family == expected_color_family
+        item_ok += int(item_match)
         category_ok += int(category_match)
         color_ok += int(color_match)
         confusion[expected_category][predicted_category] += 1
         results.append(
             {
                 **row,
+                "pred_label_id": predicted_label_id,
                 "pred_category": predicted_category,
                 "pred_color": analysis.get("color", ""),
                 "pred_color_family": predicted_color_family,
@@ -61,6 +67,7 @@ def main() -> int:
                 "category_confidence": analysis.get("confidence", {}).get("category", 0),
                 "color_confidence": analysis.get("confidence", {}).get("color", 0),
                 "material_confidence": analysis.get("confidence", {}).get("material", 0),
+                "item_match": item_match,
                 "category_match": category_match,
                 "color_family_match": color_match,
             }
@@ -68,6 +75,7 @@ def main() -> int:
 
     total = max(1, len(results))
     print("samples=%d" % len(results))
+    print("item_accuracy=%.2f%%" % (item_ok * 100 / total))
     print("category_accuracy=%.2f%%" % (category_ok * 100 / total))
     print("color_family_accuracy=%.2f%%" % (color_ok * 100 / total))
     print("confusion:")

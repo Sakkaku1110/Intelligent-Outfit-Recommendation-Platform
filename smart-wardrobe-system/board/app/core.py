@@ -185,14 +185,155 @@ def viewfinder_crop_box(width: int, height: int) -> Tuple[int, int, int, int]:
     return x1, y1, max(x1 + 1, x2), max(y1 + 1, y2)
 
 
+def cv2_read_image(cv2: Any, np: Any, image_path: Any) -> Any:
+    path_text = str(image_path)
+    if path_text.isascii():
+        image = cv2.imread(path_text)
+        if image is not None:
+            return image
+    try:
+        data = np.fromfile(path_text, dtype=np.uint8)
+        if data.size:
+            return cv2.imdecode(data, cv2.IMREAD_COLOR)
+    except Exception:
+        return None
+    return None
+
+
+def cv2_write_image(cv2: Any, image_path: Any, image: Any, params: Optional[List[int]] = None) -> bool:
+    suffix = pathlib.Path(str(image_path)).suffix.lower() or ".jpg"
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+        suffix = ".jpg"
+    ok, encoded = cv2.imencode(suffix, image, params or [])
+    if not ok:
+        return False
+    pathlib.Path(str(image_path)).parent.mkdir(parents=True, exist_ok=True)
+    encoded.tofile(str(image_path))
+    return True
+
+
+def _display_bgr(color: Any) -> Tuple[int, int, int]:
+    family = color_family(color)
+    rgb = COLOR_RGB.get(family, COLOR_RGB["gray"])
+    r, g, b = rgb
+    return int(b), int(g), int(r)
+
+
+def _shade_bgr(color: Tuple[int, int, int], factor: float) -> Tuple[int, int, int]:
+    return tuple(max(0, min(255, int(channel * factor))) for channel in color)  # type: ignore[return-value]
+
+
+def _draw_soft_shadow(cv2: Any, np: Any, canvas: Any, mask: Any, offset: Tuple[int, int] = (16, 18)) -> None:
+    shadow = np.zeros(mask.shape, dtype=np.uint8)
+    ox, oy = offset
+    h, w = mask.shape[:2]
+    shadow[oy:h, ox:w] = mask[: h - oy, : w - ox]
+    shadow = cv2.GaussianBlur(shadow, (45, 45), 0)
+    alpha = (shadow.astype("float32") / 255.0 * 0.22)[:, :, None]
+    shadow_color = np.full_like(canvas, (210, 210, 220))
+    canvas[:] = (canvas.astype("float32") * (1 - alpha) + shadow_color.astype("float32") * alpha).astype("uint8")
+
+
+def _rounded_rect(cv2: Any, canvas: Any, p1: Tuple[int, int], p2: Tuple[int, int], radius: int, color: Tuple[int, int, int], thickness: int = -1) -> None:
+    x1, y1 = p1
+    x2, y2 = p2
+    if thickness < 0:
+        cv2.rectangle(canvas, (x1 + radius, y1), (x2 - radius, y2), color, thickness)
+        cv2.rectangle(canvas, (x1, y1 + radius), (x2, y2 - radius), color, thickness)
+        cv2.circle(canvas, (x1 + radius, y1 + radius), radius, color, thickness)
+        cv2.circle(canvas, (x2 - radius, y1 + radius), radius, color, thickness)
+        cv2.circle(canvas, (x1 + radius, y2 - radius), radius, color, thickness)
+        cv2.circle(canvas, (x2 - radius, y2 - radius), radius, color, thickness)
+    else:
+        cv2.line(canvas, (x1 + radius, y1), (x2 - radius, y1), color, thickness)
+        cv2.line(canvas, (x1 + radius, y2), (x2 - radius, y2), color, thickness)
+        cv2.line(canvas, (x1, y1 + radius), (x1, y2 - radius), color, thickness)
+        cv2.line(canvas, (x2, y1 + radius), (x2, y2 - radius), color, thickness)
+        cv2.ellipse(canvas, (x1 + radius, y1 + radius), (radius, radius), 180, 0, 90, color, thickness)
+        cv2.ellipse(canvas, (x2 - radius, y1 + radius), (radius, radius), 270, 0, 90, color, thickness)
+        cv2.ellipse(canvas, (x1 + radius, y2 - radius), (radius, radius), 90, 0, 90, color, thickness)
+        cv2.ellipse(canvas, (x2 - radius, y2 - radius), (radius, radius), 0, 0, 90, color, thickness)
+
+
+def _draw_stylized_item(cv2: Any, np: Any, category: str, color: Tuple[int, int, int], name: str = "") -> Any:
+    canvas_h, canvas_w = 840, 720
+    canvas = np.full((canvas_h, canvas_w, 3), (248, 248, 251), dtype=np.uint8)
+    shape = np.zeros((canvas_h, canvas_w), dtype=np.uint8)
+    line = (40, 42, 48) if sum(color) > 560 else (235, 236, 240)
+    dark = _shade_bgr(color, 0.72)
+    light = _shade_bgr(color, 1.12)
+    category = normalize_category(category)
+
+    if category == "bottom":
+        pts = np.array([[230, 210], [490, 210], [520, 710], [405, 710], [365, 350], [320, 710], [200, 710]], np.int32)
+        cv2.fillPoly(shape, [pts], 255)
+        _draw_soft_shadow(cv2, np, canvas, shape)
+        cv2.fillPoly(canvas, [pts], color)
+        _rounded_rect(cv2, canvas, (220, 185), (500, 240), 18, dark)
+        cv2.line(canvas, (360, 240), (365, 700), line, 4)
+        cv2.line(canvas, (250, 265), (320, 302), light, 5)
+        cv2.line(canvas, (470, 265), (405, 302), light, 5)
+        _rounded_rect(cv2, canvas, (205, 688), (322, 730), 14, dark)
+        _rounded_rect(cv2, canvas, (398, 688), (515, 730), 14, dark)
+    elif category == "outer":
+        body = np.array([[250, 205], [470, 205], [520, 690], [200, 690]], np.int32)
+        left_sleeve = np.array([[250, 225], [160, 335], [115, 560], [205, 580], [260, 355]], np.int32)
+        right_sleeve = np.array([[470, 225], [560, 335], [605, 560], [515, 580], [460, 355]], np.int32)
+        cv2.fillPoly(shape, [body, left_sleeve, right_sleeve], 255)
+        _draw_soft_shadow(cv2, np, canvas, shape)
+        cv2.fillPoly(canvas, [left_sleeve, right_sleeve, body], color)
+        cv2.ellipse(canvas, (360, 215), (64, 46), 0, 0, 180, (248, 248, 251), -1)
+        cv2.line(canvas, (360, 238), (360, 678), line, 5)
+        cv2.line(canvas, (285, 250), (360, 340), light, 4)
+        cv2.line(canvas, (435, 250), (360, 340), light, 4)
+        _rounded_rect(cv2, canvas, (235, 500), (320, 570), 18, dark)
+        _rounded_rect(cv2, canvas, (400, 500), (485, 570), 18, dark)
+    elif category == "shoes":
+        high_top = "boot" in name.lower() or "靴" in name or color_family(name or "") == "black" or color_family(color) == "black"
+        if high_top:
+            upper = np.array([[160, 445], [230, 315], [390, 300], [450, 430], [585, 500], [555, 585], [205, 585], [135, 545]], np.int32)
+            ankle = np.array([[225, 270], [372, 270], [410, 405], [210, 430]], np.int32)
+            cv2.fillPoly(shape, [upper, ankle], 255)
+            _draw_soft_shadow(cv2, np, canvas, shape, (18, 20))
+            cv2.fillPoly(canvas, [ankle, upper], color)
+            cv2.line(canvas, (255, 365), (410, 440), line, 5)
+            cv2.line(canvas, (275, 395), (425, 465), line, 5)
+        else:
+            upper = np.array([[135, 465], [255, 365], [445, 390], [610, 500], [570, 580], [175, 580], [118, 535]], np.int32)
+            cv2.fillPoly(shape, [upper], 255)
+            _draw_soft_shadow(cv2, np, canvas, shape, (18, 20))
+            cv2.fillPoly(canvas, [upper], color)
+            cv2.line(canvas, (300, 420), (420, 470), line, 5)
+            cv2.line(canvas, (270, 450), (395, 505), line, 5)
+        _rounded_rect(cv2, canvas, (105, 560), (620, 640), 38, (58, 60, 66), -1)
+        _rounded_rect(cv2, canvas, (125, 545), (598, 606), 30, dark, -1)
+        cv2.line(canvas, (150, 622), (560, 622), (230, 230, 235), 6)
+    else:
+        body = np.array([[250, 210], [470, 210], [520, 665], [200, 665]], np.int32)
+        left_sleeve = np.array([[250, 230], [132, 335], [180, 460], [260, 392]], np.int32)
+        right_sleeve = np.array([[470, 230], [588, 335], [540, 460], [460, 392]], np.int32)
+        cv2.fillPoly(shape, [body, left_sleeve, right_sleeve], 255)
+        _draw_soft_shadow(cv2, np, canvas, shape)
+        cv2.fillPoly(canvas, [left_sleeve, right_sleeve, body], color)
+        cv2.ellipse(canvas, (360, 218), (72, 48), 0, 0, 180, (248, 248, 251), -1)
+        cv2.line(canvas, (245, 214), (305, 286), light, 5)
+        cv2.line(canvas, (475, 214), (415, 286), light, 5)
+        if color_family(name) in {"red", "purple"} or "球衣" in name:
+            cv2.rectangle(canvas, (285, 365), (435, 410), light, -1)
+            cv2.line(canvas, (285, 430), (435, 430), light, 5)
+
+    return canvas
+
+
 def crop_viewfinder_image(image_path: str, output_dir: pathlib.Path) -> Dict[str, Any]:
     try:
         import cv2  # type: ignore
+        import numpy as np  # type: ignore
     except Exception:
         return {}
 
     source = pathlib.Path(image_path)
-    image = cv2.imread(str(source))
+    image = cv2_read_image(cv2, np, source)
     if image is None:
         return {}
     height, width = image.shape[:2]
@@ -202,11 +343,134 @@ def crop_viewfinder_image(image_path: str, output_dir: pathlib.Path) -> Dict[str
     output_dir.mkdir(parents=True, exist_ok=True)
     output_name = "%s_viewfinder%s" % (source.stem, source.suffix or ".jpg")
     output_path = output_dir / output_name
-    cv2.imwrite(str(output_path), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 94])
+    cv2_write_image(cv2, output_path, crop, [int(cv2.IMWRITE_JPEG_QUALITY), 94])
     return {
         "image_path": str(output_path),
         "image_url": "/uploads/%s" % output_name,
         "crop_box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+    }
+
+
+def make_display_image(
+    image_path: str,
+    output_dir: pathlib.Path,
+    category: Any = "",
+    color: Any = "",
+    name: Any = "",
+) -> Dict[str, str]:
+    """Create a clean product-card image for wardrobe/recommendation display."""
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+    except Exception:
+        return {}
+
+    source = pathlib.Path(image_path)
+    image = cv2_read_image(cv2, np, source)
+    if image is None:
+        return {}
+
+    output_dir = pathlib.Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_name = "%s_display.jpg" % source.stem
+    output_path = output_dir / output_name
+
+    category_text = normalize_category(category) if category else ""
+    if category_text:
+        card = _draw_stylized_item(cv2, np, category_text, _display_bgr(color), str(name or ""))
+        cv2_write_image(cv2, output_path, card, [int(cv2.IMWRITE_JPEG_QUALITY), 94])
+        return {
+            "display_image_path": str(output_path),
+            "display_image_url": "/uploads/%s" % output_name,
+        }
+
+    height, width = image.shape[:2]
+    scale = min(1.0, 1100.0 / max(height, width))
+    if scale < 1.0:
+        image = cv2.resize(image, (int(width * scale), int(height * scale)))
+        height, width = image.shape[:2]
+
+    rect = (
+        max(1, int(width * 0.04)),
+        max(1, int(height * 0.04)),
+        max(2, int(width * 0.92)),
+        max(2, int(height * 0.92)),
+    )
+    mask = np.zeros((height, width), np.uint8)
+    bgd = np.zeros((1, 65), np.float64)
+    fgd = np.zeros((1, 65), np.float64)
+    try:
+        cv2.grabCut(image, mask, rect, bgd, fgd, 4, cv2.GC_INIT_WITH_RECT)
+        alpha = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype("uint8")
+    except Exception:
+        alpha = np.full((height, width), 255, dtype="uint8")
+
+    kernel = np.ones((5, 5), np.uint8)
+    alpha = cv2.morphologyEx(alpha, cv2.MORPH_CLOSE, kernel, iterations=2)
+    alpha = cv2.morphologyEx(alpha, cv2.MORPH_OPEN, kernel, iterations=1)
+    foreground_ratio = float(np.count_nonzero(alpha)) / max(1, alpha.size)
+    if foreground_ratio < 0.08 or foreground_ratio > 0.92:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (7, 7), 0)
+        edges = cv2.Canny(blur, 28, 90)
+        alpha = cv2.dilate(edges, kernel, iterations=5)
+        alpha = cv2.morphologyEx(alpha, cv2.MORPH_CLOSE, kernel, iterations=4)
+
+    contours, _ = cv2.findContours(alpha, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours = [contour for contour in contours if cv2.contourArea(contour) > max(90, width * height * 0.002)]
+    if contours:
+        xs, ys, xe, ye = [], [], [], []
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            xs.append(x)
+            ys.append(y)
+            xe.append(x + w)
+            ye.append(y + h)
+        x1, y1, x2, y2 = min(xs), min(ys), max(xe), max(ye)
+    else:
+        x1, y1, x2, y2 = 0, 0, width, height
+
+    pad_x = int((x2 - x1) * 0.08)
+    pad_y = int((y2 - y1) * 0.08)
+    x1 = max(0, x1 - pad_x)
+    y1 = max(0, y1 - pad_y)
+    x2 = min(width, x2 + pad_x)
+    y2 = min(height, y2 + pad_y)
+    if x2 <= x1 or y2 <= y1:
+        x1, y1, x2, y2 = 0, 0, width, height
+
+    crop = image[y1:y2, x1:x2]
+    crop_alpha = alpha[y1:y2, x1:x2]
+    canvas_h, canvas_w = 840, 720
+    canvas = np.full((canvas_h, canvas_w, 3), (247, 247, 250), dtype=np.uint8)
+    shadow = np.zeros((canvas_h, canvas_w), dtype=np.uint8)
+
+    ch, cw = crop.shape[:2]
+    fit = min(canvas_w * 0.82 / max(1, cw), canvas_h * 0.78 / max(1, ch))
+    nw, nh = max(1, int(cw * fit)), max(1, int(ch * fit))
+    crop = cv2.resize(crop, (nw, nh), interpolation=cv2.INTER_AREA)
+    crop_alpha = cv2.resize(crop_alpha, (nw, nh), interpolation=cv2.INTER_AREA)
+    crop_alpha = cv2.GaussianBlur(crop_alpha, (5, 5), 0)
+    ox = (canvas_w - nw) // 2
+    oy = (canvas_h - nh) // 2
+
+    shadow_y = min(canvas_h - nh, oy + 14)
+    shadow_x = min(canvas_w - nw, ox + 10)
+    shadow[shadow_y : shadow_y + nh, shadow_x : shadow_x + nw] = crop_alpha
+    shadow = cv2.GaussianBlur(shadow, (31, 31), 0)
+    shadow_layer = np.full_like(canvas, (210, 210, 220))
+    shadow_alpha = (shadow.astype("float32") / 255.0 * 0.28)[:, :, None]
+    canvas = (canvas.astype("float32") * (1 - shadow_alpha) + shadow_layer.astype("float32") * shadow_alpha).astype("uint8")
+
+    roi = canvas[oy : oy + nh, ox : ox + nw]
+    alpha_f = (crop_alpha.astype("float32") / 255.0)[:, :, None]
+    blended = crop.astype("float32") * alpha_f + roi.astype("float32") * (1 - alpha_f)
+    canvas[oy : oy + nh, ox : ox + nw] = blended.astype("uint8")
+
+    cv2_write_image(cv2, output_path, canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+    return {
+        "display_image_path": str(output_path),
+        "display_image_url": "/uploads/%s" % output_name,
     }
 
 
@@ -224,7 +488,7 @@ class CloudPreprocessor:
             or os.environ.get("SMART_WARDROBE_GEMINI_API_KEY")
             or ""
         ).strip()
-        self.timeout = float(os.environ.get("SMART_WARDROBE_CLOUD_TIMEOUT", "18") or 18)
+        self.timeout = float(os.environ.get("SMART_WARDROBE_CLOUD_TIMEOUT", "4.2") or 4.2)
 
     def status(self) -> Dict[str, Any]:
         return {
@@ -232,6 +496,7 @@ class CloudPreprocessor:
             "model": self.model,
             "configured": self.configured(),
             "proxy_url": self.proxy_url,
+            "timeout_sec": self.timeout,
             "purpose": "subject_bbox_crop",
         }
 
@@ -239,6 +504,7 @@ class CloudPreprocessor:
         return self.provider == "gemini" and (bool(self.api_key) or bool(self.proxy_url))
 
     def preprocess(self, image_path: str, image_url: str = "") -> Dict[str, Any]:
+        started = time.perf_counter()
         if not self.configured():
             return {
                 "ok": False,
@@ -249,8 +515,11 @@ class CloudPreprocessor:
             }
         try:
             if self.proxy_url:
-                return self._preprocess_with_proxy(pathlib.Path(image_path), image_url)
-            return self._preprocess_with_gemini(pathlib.Path(image_path), image_url)
+                result = self._preprocess_with_proxy(pathlib.Path(image_path), image_url)
+            else:
+                result = self._preprocess_with_gemini(pathlib.Path(image_path), image_url)
+            result["elapsed_ms"] = int((time.perf_counter() - started) * 1000)
+            return result
         except Exception as exc:
             return {
                 "ok": False,
@@ -259,6 +528,7 @@ class CloudPreprocessor:
                 "model": self.model,
                 "reason": "cloud_error",
                 "message": str(exc)[:500],
+                "elapsed_ms": int((time.perf_counter() - started) * 1000),
             }
 
     def _preprocess_with_proxy(self, image_path: pathlib.Path, image_url: str) -> Dict[str, Any]:
@@ -269,6 +539,7 @@ class CloudPreprocessor:
             "mime_type": mime_type,
             "image_data": base64.b64encode(image_path.read_bytes()).decode("ascii"),
             "model": self.model,
+            "timeout_sec": self.timeout,
         }
         request = urllib.request.Request(
             self.proxy_url,
@@ -329,6 +600,7 @@ class CloudPreprocessor:
             ],
             "generationConfig": {
                 "temperature": 0.05,
+                "maxOutputTokens": 180,
                 "responseMimeType": "application/json",
             },
         }
@@ -423,9 +695,10 @@ class CloudPreprocessor:
     def _crop_to_box(self, image_path: pathlib.Path, normalized_box: List[int]) -> Dict[str, Any]:
         try:
             import cv2  # type: ignore
+            import numpy as np  # type: ignore
         except Exception as exc:
             raise RuntimeError("OpenCV unavailable for cloud crop: %s" % exc) from exc
-        image = cv2.imread(str(image_path))
+        image = cv2_read_image(cv2, np, image_path)
         if image is None:
             raise RuntimeError("cannot read image for cloud crop: %s" % image_path)
         height, width = image.shape[:2]
@@ -446,7 +719,7 @@ class CloudPreprocessor:
         output_name = "%s_cloud%s" % (image_path.stem, image_path.suffix or ".jpg")
         output_path = self.upload_dir / output_name
         self.upload_dir.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(output_path), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 94])
+        cv2_write_image(cv2, output_path, crop, [int(cv2.IMWRITE_JPEG_QUALITY), 94])
         return {
             "image_path": str(output_path),
             "image_url": "/uploads/%s" % output_name,
@@ -533,6 +806,8 @@ class WardrobeDB:
                     wear_count INTEGER DEFAULT 0,
                     image_url TEXT DEFAULT '',
                     image_path TEXT DEFAULT '',
+                    display_image_url TEXT DEFAULT '',
+                    display_image_path TEXT DEFAULT '',
                     ai_analysis TEXT DEFAULT '',
                     note TEXT DEFAULT '',
                     created_at TEXT NOT NULL,
@@ -552,6 +827,8 @@ class WardrobeDB:
             "color_confidence": "REAL DEFAULT 0",
             "material_confidence": "REAL DEFAULT 0",
             "ai_analysis": "TEXT DEFAULT ''",
+            "display_image_url": "TEXT DEFAULT ''",
+            "display_image_path": "TEXT DEFAULT ''",
         }
         for name, definition in columns.items():
             if name not in existing:
@@ -591,8 +868,9 @@ class WardrobeDB:
                     name, category, color, material, season, occasion, style,
                     warmth, formality, favorite_score, category_confidence,
                     color_confidence, material_confidence, wear_count, image_url,
-                    image_path, ai_analysis, note, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    image_path, display_image_url, display_image_path, ai_analysis,
+                    note, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item["name"],
@@ -611,6 +889,8 @@ class WardrobeDB:
                     0,
                     item["image_url"],
                     item["image_path"],
+                    item["display_image_url"],
+                    item["display_image_path"],
                     item["ai_analysis"],
                     item["note"],
                     created,
@@ -638,7 +918,8 @@ class WardrobeDB:
                     occasion=?, style=?, warmth=?, formality=?,
                     favorite_score=?, category_confidence=?, color_confidence=?,
                     material_confidence=?, image_url=?, image_path=?,
-                    ai_analysis=?, note=?, updated_at=?
+                    display_image_url=?, display_image_path=?, ai_analysis=?,
+                    note=?, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -657,6 +938,8 @@ class WardrobeDB:
                     cleaned["material_confidence"],
                     cleaned["image_url"],
                     cleaned["image_path"],
+                    cleaned["display_image_url"],
+                    cleaned["display_image_path"],
                     cleaned["ai_analysis"],
                     cleaned["note"],
                     now_iso(),
@@ -754,6 +1037,8 @@ class WardrobeDB:
             "material_confidence": float(payload.get("material_confidence") or 0),
             "image_url": str(payload.get("image_url") or "").strip()[:240],
             "image_path": str(payload.get("image_path") or "").strip()[:240],
+            "display_image_url": str(payload.get("display_image_url") or "").strip()[:240],
+            "display_image_path": str(payload.get("display_image_path") or "").strip()[:240],
             "ai_analysis": self._normalize_analysis(payload.get("ai_analysis")),
             "note": str(payload.get("note") or "").strip()[:240],
         }
@@ -796,7 +1081,7 @@ class ImageAnalyzer:
         except Exception as exc:
             return self._fallback("opencv_missing", str(exc))
 
-        image = cv2.imread(str(image_path))
+        image = cv2_read_image(cv2, np, image_path)
         if image is None:
             return self._fallback("image_read_failed", str(image_path))
 

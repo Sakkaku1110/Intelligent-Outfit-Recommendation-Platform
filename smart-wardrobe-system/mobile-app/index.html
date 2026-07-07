@@ -159,11 +159,95 @@
             <p class="eyebrow">Closet</p>
             <h2>衣物库</h2>
           </div>
-          <button id="closetRefreshBtn" class="icon-button" type="button">刷新</button>
+          <div class="closet-actions">
+            <button id="manualAddBtn" class="icon-button" type="button">新增</button>
+            <button id="closetRefreshBtn" class="icon-button" type="button">刷新</button>
+          </div>
+        </section>
+        <section class="closet-tools">
+          <label>
+            搜索
+            <input id="closetSearchInput" placeholder="名称 / 颜色 / 材质" />
+          </label>
+          <label>
+            分类
+            <select id="closetCategoryFilter">
+              <option value="all">全部</option>
+              <option value="top">上衣</option>
+              <option value="bottom">裤子</option>
+              <option value="outer">外套</option>
+              <option value="shoes">鞋子</option>
+              <option value="accessory">配饰</option>
+            </select>
+          </label>
         </section>
         <div id="wardrobeGrid" class="wardrobe-grid"></div>
       </section>
     </main>
+
+    <div id="itemEditor" class="editor-backdrop" hidden>
+      <section class="editor-sheet" role="dialog" aria-modal="true" aria-labelledby="editorTitle">
+        <div class="review-header">
+          <div>
+            <p class="eyebrow">Clothing Detail</p>
+            <h2 id="editorTitle">编辑衣物</h2>
+          </div>
+          <button id="closeEditorBtn" class="icon-button close-button" type="button" aria-label="关闭">×</button>
+        </div>
+        <img id="editorPreview" class="editor-preview" alt="衣物预览" />
+        <form id="itemEditForm" class="review-form">
+          <input name="id" type="hidden" />
+          <input name="image_url" type="hidden" />
+          <input name="image_path" type="hidden" />
+          <label>
+            名称
+            <input name="name" />
+          </label>
+          <label>
+            类别
+            <select name="category">
+              <option value="top">上衣</option>
+              <option value="bottom">裤子</option>
+              <option value="outer">外套</option>
+              <option value="shoes">鞋子</option>
+              <option value="accessory">配饰</option>
+            </select>
+          </label>
+          <label>
+            颜色
+            <input name="color" />
+          </label>
+          <label>
+            材质
+            <input name="material" />
+          </label>
+          <label>
+            保暖
+            <input name="warmth" type="number" min="1" max="5" />
+          </label>
+          <label>
+            偏好
+            <input name="favorite_score" type="number" min="1" max="5" />
+          </label>
+          <label>
+            季节
+            <input name="season" />
+          </label>
+          <label>
+            场景
+            <input name="occasion" />
+          </label>
+          <label>
+            备注
+            <input name="note" />
+          </label>
+          <div class="review-actions">
+            <button id="deleteEditBtn" class="secondary-btn danger" type="button">删除</button>
+            <button id="saveEditBtn" class="primary-btn" type="submit">保存</button>
+          </div>
+        </form>
+      </section>
+    </div>
 
     <nav class="bottom-nav" aria-label="主导航">
       <button class="nav-item active" data-view="today" type="button"><span>今日</span></button>

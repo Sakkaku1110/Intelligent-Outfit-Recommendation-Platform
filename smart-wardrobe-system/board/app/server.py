@@ -25,6 +25,7 @@ from .core import (
     WardrobeDB,
     WeatherClient,
     crop_viewfinder_image,
+    make_display_image,
     merge_analysis_into_payload,
     save_ws63_payload,
 )
@@ -85,7 +86,15 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
             if path == "/api/health":
                 self.send_json(self.health_payload())
             elif path == "/api/clothes":
+                self.ensure_display_images()
                 self.send_json({"items": self.db.list_clothes(), "count": self.db.count()})
+            elif path.startswith("/api/clothes/"):
+                item_id = int(path.rsplit("/", 1)[-1])
+                item = self.db.get_clothing(item_id)
+                if not item:
+                    self.send_json({"error": "clothing not found"}, HTTPStatus.NOT_FOUND)
+                    return
+                self.send_json({"item": item})
             elif path == "/api/camera/stream":
                 self.serve_camera_stream()
             elif path == "/api/vision/cloud/status":
@@ -111,53 +120,92 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
         try:
             if path == "/api/clothes":
                 payload = self.read_json()
+                payload = self.apply_display_image(payload)
                 item = self.db.add_clothing(payload)
                 self.send_json({"item": item}, HTTPStatus.CREATED)
             elif path == "/api/clothes/capture":
+                request_started = time.perf_counter()
+                timings: Dict[str, int] = {}
                 payload = self.read_json()
                 use_viewfinder = bool(payload.pop("use_viewfinder", True))
                 use_cloud_preprocess = bool(payload.pop("use_cloud_preprocess", True))
+                stage_started = time.perf_counter()
                 capture = self.camera.capture(
                     resolution=str(payload.pop("resolution", "640x480")),
-                    skip_frames=int(payload.pop("skip_frames", 10)),
+                    skip_frames=int(payload.pop("skip_frames", 2)),
                 )
+                timings["capture_ms"] = int((time.perf_counter() - stage_started) * 1000)
                 if use_viewfinder:
+                    stage_started = time.perf_counter()
                     capture = self.apply_viewfinder_crop(capture)
+                    timings["viewfinder_crop_ms"] = int((time.perf_counter() - stage_started) * 1000)
                 if use_cloud_preprocess:
+                    stage_started = time.perf_counter()
                     capture = self.apply_cloud_preprocess(capture)
+                    timings["cloud_preprocess_ms"] = int((time.perf_counter() - stage_started) * 1000)
                 payload.update(capture)
                 if bool(payload.pop("auto_analyze", True)):
+                    stage_started = time.perf_counter()
                     analysis = self.analyzer.analyze(
                         capture["image_path"], focus_viewfinder=False
                     )
+                    timings["edge_analysis_ms"] = int((time.perf_counter() - stage_started) * 1000)
                     if capture.get("cloud_preprocess"):
                         analysis["cloud_preprocess"] = capture.get("cloud_preprocess")
                     payload = merge_analysis_into_payload(payload, analysis)
+                payload = self.apply_display_image(payload)
+                timings["total_ms"] = int((time.perf_counter() - request_started) * 1000)
+                capture["timing_ms"] = timings
                 item = self.db.add_clothing(payload)
                 self.send_json(
-                    {"item": item, "capture": capture, "analysis": item.get("ai_analysis", {})},
+                    {
+                        "item": item,
+                        "capture": capture,
+                        "analysis": item.get("ai_analysis", {}),
+                        "timing_ms": timings,
+                    },
                     HTTPStatus.CREATED,
                 )
             elif path == "/api/clothes/capture/analyze":
+                request_started = time.perf_counter()
+                timings: Dict[str, int] = {}
                 payload = self.read_json(allow_empty=True)
                 use_viewfinder = bool(payload.pop("use_viewfinder", True))
                 use_cloud_preprocess = bool(payload.pop("use_cloud_preprocess", True))
+                stage_started = time.perf_counter()
                 capture = self.camera.capture(
                     resolution=str(payload.pop("resolution", "640x480")),
-                    skip_frames=int(payload.pop("skip_frames", 10)),
+                    skip_frames=int(payload.pop("skip_frames", 2)),
                 )
+                timings["capture_ms"] = int((time.perf_counter() - stage_started) * 1000)
                 if use_viewfinder:
+                    stage_started = time.perf_counter()
                     capture = self.apply_viewfinder_crop(capture)
+                    timings["viewfinder_crop_ms"] = int((time.perf_counter() - stage_started) * 1000)
                 if use_cloud_preprocess:
+                    stage_started = time.perf_counter()
                     capture = self.apply_cloud_preprocess(capture)
+                    timings["cloud_preprocess_ms"] = int((time.perf_counter() - stage_started) * 1000)
+                stage_started = time.perf_counter()
                 analysis = self.analyzer.analyze(
                     capture["image_path"], focus_viewfinder=False
                 )
+                timings["edge_analysis_ms"] = int((time.perf_counter() - stage_started) * 1000)
                 if capture.get("cloud_preprocess"):
                     analysis["cloud_preprocess"] = capture.get("cloud_preprocess")
                 payload.update(capture)
                 draft = merge_analysis_into_payload(payload, analysis)
-                self.send_json({"draft": draft, "capture": capture, "analysis": analysis})
+                draft = self.apply_display_image(draft)
+                timings["total_ms"] = int((time.perf_counter() - request_started) * 1000)
+                capture["timing_ms"] = timings
+                self.send_json(
+                    {
+                        "draft": draft,
+                        "capture": capture,
+                        "analysis": analysis,
+                        "timing_ms": timings,
+                    }
+                )
             elif path == "/api/demo/seed":
                 payload = self.read_json(allow_empty=True)
                 count = self.db.seed_demo_items(force=bool(payload.get("force", False)))
@@ -205,6 +253,40 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
         )
         return updated
 
+    def apply_display_image(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        image_path = str(payload.get("image_path") or "").strip()
+        if not image_path or payload.get("display_image_url"):
+            return payload
+        display = make_display_image(
+            image_path,
+            UPLOAD_ROOT,
+            category=payload.get("category", ""),
+            color=payload.get("color", ""),
+            name=payload.get("name", ""),
+        )
+        if not display:
+            return payload
+        updated = dict(payload)
+        updated.update(display)
+        return updated
+
+    def ensure_display_images(self) -> None:
+        for item in self.db.list_clothes():
+            if item.get("display_image_url") or not item.get("image_path"):
+                continue
+            display = make_display_image(
+                str(item.get("image_path")),
+                UPLOAD_ROOT,
+                category=item.get("category", ""),
+                color=item.get("color", ""),
+                name=item.get("name", ""),
+            )
+            if not display:
+                continue
+            payload = dict(item)
+            payload.update(display)
+            self.db.update_clothing(int(item["id"]), payload)
+
     def do_PUT(self) -> None:
         path = urllib.parse.urlparse(self.path).path
         if not path.startswith("/api/clothes/"):
@@ -212,7 +294,7 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
             return
         try:
             item_id = int(path.rsplit("/", 1)[-1])
-            item = self.db.update_clothing(item_id, self.read_json())
+            item = self.db.update_clothing(item_id, self.apply_display_image(self.read_json()))
             if not item:
                 self.send_json({"error": "clothing not found"}, HTTPStatus.NOT_FOUND)
                 return
