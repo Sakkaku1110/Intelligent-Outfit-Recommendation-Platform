@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 ~$*
 .pytest_cache/
+.tools/
 
 # Generated board/runtime data
 smart-wardrobe-system/board/data/

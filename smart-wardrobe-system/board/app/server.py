@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional
 from .core import (
     Camera,
     CloudPreprocessor,
+    CloudSyncClient,
     ImageAnalyzer,
     RecommendationEngine,
     WardrobeDB,
@@ -45,6 +46,7 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
     weather: WeatherClient
     camera: Camera
     cloud_preprocessor: CloudPreprocessor
+    cloud_sync: CloudSyncClient
     analyzer: ImageAnalyzer
     recommender: RecommendationEngine
     taobao: TaobaoResolver
@@ -89,6 +91,8 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
         try:
             if path == "/api/health":
                 self.send_json(self.health_payload())
+            elif path == "/api/cloud/sync/status":
+                self.send_json(self.cloud_sync.status())
             elif path == "/api/clothes":
                 self.ensure_display_images()
                 self.send_json({"items": self.db.list_clothes(), "count": self.db.count()})
@@ -103,6 +107,12 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                 self.serve_camera_stream()
             elif path == "/api/vision/cloud/status":
                 self.send_json({"cloud": self.cloud_preprocessor.status()})
+            elif path == "/api/ws63/latest":
+                latest_path = DATA_ROOT / "ws63_latest.json"
+                if not latest_path.exists():
+                    self.send_json({"available": False}, HTTPStatus.NOT_FOUND)
+                    return
+                self.send_json({"available": True, "sensor": json.loads(latest_path.read_text(encoding="utf-8"))})
             elif path in {"/api/recommend", "/api/recommendations"}:
                 city = query.get("city", [os.environ.get("SMART_WARDROBE_CITY", "Hangzhou")])[0]
                 occasion = query.get("occasion", ["school"])[0]
@@ -126,7 +136,8 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                 payload = self.read_json()
                 payload = self.apply_display_image(payload)
                 item = self.db.add_clothing(payload)
-                self.send_json({"item": item}, HTTPStatus.CREATED)
+                cloud_sync = self.cloud_sync.sync_item(item)
+                self.send_json({"item": item, "cloud_sync": cloud_sync}, HTTPStatus.CREATED)
             elif path == "/api/clothes/capture":
                 request_started = time.perf_counter()
                 timings: Dict[str, int] = {}
@@ -161,12 +172,14 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                 timings["total_ms"] = int((time.perf_counter() - request_started) * 1000)
                 capture["timing_ms"] = timings
                 item = self.db.add_clothing(payload)
+                cloud_sync = self.cloud_sync.sync_item(item)
                 self.send_json(
                     {
                         "item": item,
                         "capture": capture,
                         "analysis": item.get("ai_analysis", {}),
                         "timing_ms": timings,
+                        "cloud_sync": cloud_sync,
                     },
                     HTTPStatus.CREATED,
                 )
@@ -227,7 +240,18 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                 result = self.resolve_taobao_payload(self.read_json(), base_item=existing)
                 patch = result.get("patch", {})
                 item = self.db.update_clothing(item_id, {**existing, **patch})
-                self.send_json({"item": item, **result})
+                cloud_sync = self.cloud_sync.sync_item(item) if item else {"ok": False}
+                self.send_json({"item": item, "cloud_sync": cloud_sync, **result})
+            elif path == "/api/cloud/sync":
+                payload = self.read_json(allow_empty=True)
+                items = self.db.list_clothes()
+                if payload.get("id") is not None:
+                    requested = {str(payload.get("id"))}
+                    items = [item for item in items if str(item.get("id")) in requested]
+                elif payload.get("ids"):
+                    requested = {str(item_id) for item_id in payload.get("ids") or []}
+                    items = [item for item in items if str(item.get("id")) in requested]
+                self.send_json(self.cloud_sync.sync_items(items))
             elif path == "/api/ws63/sensor":
                 payload = self.read_json()
                 saved = save_ws63_payload(DATA_ROOT / "ws63_latest.json", payload)
@@ -393,7 +417,8 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
             if not item:
                 self.send_json({"error": "clothing not found"}, HTTPStatus.NOT_FOUND)
                 return
-            self.send_json({"item": item})
+            cloud_sync = self.cloud_sync.sync_item(item)
+            self.send_json({"item": item, "cloud_sync": cloud_sync})
         except Exception as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
@@ -517,6 +542,7 @@ def make_handler(db_path: pathlib.Path, camera_device: str) -> type[SmartWardrob
     SmartWardrobeHandler.camera = Camera(UPLOAD_ROOT, device=camera_device)
     SmartWardrobeHandler.camera.start_live()
     SmartWardrobeHandler.cloud_preprocessor = CloudPreprocessor(UPLOAD_ROOT)
+    SmartWardrobeHandler.cloud_sync = CloudSyncClient()
     SmartWardrobeHandler.analyzer = ImageAnalyzer()
     SmartWardrobeHandler.recommender = RecommendationEngine()
     SmartWardrobeHandler.taobao = TaobaoResolver()

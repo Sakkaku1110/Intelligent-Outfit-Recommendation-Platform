@@ -11,6 +11,7 @@ import base64
 import hashlib
 import itertools
 import json
+import mimetypes
 import os
 import pathlib
 import re
@@ -138,6 +139,20 @@ def clamp_int(value: Any, default: int, low: int, high: int) -> int:
     except (TypeError, ValueError):
         number = default
     return max(low, min(high, number))
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)) or default)
+    except (TypeError, ValueError):
+        return default
 
 
 def split_tags(value: Any) -> List[str]:
@@ -1058,6 +1073,254 @@ class CloudPreprocessor:
             "image_url": "/uploads/%s" % output_name,
             "crop_box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
         }
+
+
+class CloudSyncClient:
+    """Upload SS928 wardrobe metadata and photos to the cloud API."""
+
+    def __init__(self) -> None:
+        self.enabled = env_flag("SMART_WARDROBE_CLOUD_SYNC", False)
+        self.base_url = os.environ.get("SMART_WARDROBE_CLOUD_API_BASE", "").strip().rstrip("/")
+        self.api_key = os.environ.get("SMART_WARDROBE_CLOUD_API_KEY", "").strip()
+        self.device_id = os.environ.get("SMART_WARDROBE_DEVICE_ID", socket.gethostname()).strip()
+        self.timeout = env_float("SMART_WARDROBE_CLOUD_SYNC_TIMEOUT", 10.0)
+        self.cache_dir = pathlib.Path(
+            os.environ.get(
+                "SMART_WARDROBE_CLOUD_SYNC_CACHE_DIR",
+                "/root/workspace/smart-wardrobe/data/uploads",
+            )
+        )
+
+    def configured(self) -> bool:
+        return self.enabled and bool(self.base_url) and bool(self.api_key)
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "configured": self.configured(),
+            "has_api_key": bool(self.api_key),
+            "base_url": self.base_url,
+            "device_id": self.device_id,
+            "timeout_sec": self.timeout,
+        }
+
+    def sync_items(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        results = [self.sync_item(item) for item in items]
+        failed = [item for item in results if not item.get("ok")]
+        return {
+            **self.status(),
+            "ok": self.configured() and not failed,
+            "count": len(results),
+            "metadata_uploaded": sum(1 for item in results if item.get("metadata_uploaded")),
+            "photo_uploaded": sum(1 for item in results if item.get("photo_uploaded")),
+            "failed": len(failed),
+            "items": results,
+        }
+
+    def sync_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        cloud_id = self._cloud_id(item)
+        result: Dict[str, Any] = {
+            "ok": False,
+            "enabled": self.enabled,
+            "configured": self.configured(),
+            "cloud_id": cloud_id,
+            "local_id": item.get("id"),
+            "metadata_uploaded": False,
+            "photo_uploaded": False,
+        }
+        if not self.enabled:
+            result["reason"] = "disabled"
+            return result
+        if not self.configured():
+            result["reason"] = "missing_cloud_config"
+            return result
+
+        try:
+            metadata = self._post_json("/api/wardrobe/items", self._item_payload(item, cloud_id))
+            result["metadata_uploaded"] = True
+            result["metadata"] = self._summarize_item_response(metadata)
+        except Exception as exc:
+            result["reason"] = "metadata_upload_failed"
+            result["error"] = self._error_message(exc)
+            return result
+
+        photo_path = self._photo_path(item)
+        if photo_path is None:
+            result["ok"] = True
+            result["reason"] = "no_local_photo"
+            return result
+
+        try:
+            photo = self._post_photo(cloud_id, photo_path)
+            result["photo_uploaded"] = True
+            result["photo"] = self._summarize_item_response(photo)
+        except Exception as exc:
+            result["reason"] = "photo_upload_failed"
+            result["error"] = self._error_message(exc)
+            return result
+
+        result["ok"] = bool(result["metadata_uploaded"] and result["photo_uploaded"])
+        return result
+
+    def _cloud_id(self, item: Dict[str, Any]) -> str:
+        safe_device = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.device_id).strip("_") or "ss928"
+        local_id = str(item.get("id") or "unknown")
+        safe_local = re.sub(r"[^A-Za-z0-9_.-]+", "_", local_id).strip("_") or "unknown"
+        return "%s_%s" % (safe_device, safe_local)
+
+    def _item_payload(self, item: Dict[str, Any], cloud_id: str) -> Dict[str, Any]:
+        analysis = item.get("ai_analysis") if isinstance(item.get("ai_analysis"), dict) else {}
+        confidence_values = [
+            item.get("category_confidence"),
+            item.get("color_confidence"),
+            item.get("material_confidence"),
+        ]
+        confidence_numbers = []
+        for value in confidence_values:
+            try:
+                confidence_numbers.append(float(value))
+            except (TypeError, ValueError):
+                pass
+        return {
+            "id": cloud_id,
+            "name": str(item.get("name") or "unnamed clothing"),
+            "type": str(item.get("category") or "unknown"),
+            "color": str(item.get("color") or item.get("color_family") or "unknown"),
+            "season": str(item.get("season") or "all"),
+            "material": str(item.get("material") or ""),
+            "location": str(item.get("note") or ""),
+            "count": int(item.get("wear_count") or 0),
+            "confidence": max(confidence_numbers) if confidence_numbers else None,
+            "spectralSignature": analysis.get("features") or {},
+            "source": self.device_id,
+            "deviceId": self.device_id,
+            "localId": item.get("id"),
+            "occasion": item.get("occasion") or "",
+            "warmth": item.get("warmth"),
+            "formality": item.get("formality"),
+            "favoriteScore": item.get("favorite_score"),
+            "lastSeenAt": self._timestamp(item.get("updated_at") or item.get("created_at")),
+        }
+
+    def _timestamp(self, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return datetime.now().replace(microsecond=0).isoformat()
+        if " " in text and "T" not in text:
+            return text.replace(" ", "T", 1)
+        return text
+
+    def _photo_path(self, item: Dict[str, Any]) -> Optional[pathlib.Path]:
+        for key in ("image_path", "display_image_path", "merchant_image_path"):
+            text = str(item.get(key) or "").strip()
+            if not text:
+                continue
+            path = pathlib.Path(text)
+            if path.exists() and path.is_file():
+                return path
+        for key in ("image_url", "display_image_url", "merchant_image_url"):
+            text = str(item.get(key) or "").strip()
+            if not text:
+                continue
+            if text.startswith("/uploads/"):
+                local = self.cache_dir / pathlib.Path(urllib.parse.urlparse(text).path).name
+                if local.exists() and local.is_file():
+                    return local
+                continue
+            if text.startswith("http://") or text.startswith("https://"):
+                downloaded = self._download_photo_url(text)
+                if downloaded is not None:
+                    return downloaded
+        return None
+
+    def _download_photo_url(self, url: str) -> Optional[pathlib.Path]:
+        parsed = urllib.parse.urlparse(url)
+        suffix = pathlib.Path(parsed.path).suffix.lower()
+        if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+            suffix = ".jpg"
+        digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+        filename = "cloudsync_%s%s" % (digest, suffix)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        output = self.cache_dir / filename
+        if output.exists() and output.is_file() and output.stat().st_size > 0:
+            return output
+        request = urllib.request.Request(url, headers={"User-Agent": "smart-wardrobe-ss928/1.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                content_type = str(response.headers.get("Content-Type") or "")
+                if not content_type.startswith("image/"):
+                    return None
+                data = response.read(8 * 1024 * 1024 + 1)
+        except Exception:
+            return None
+        if not data or len(data) > 8 * 1024 * 1024:
+            return None
+        output.write_bytes(data)
+        return output
+
+    def _post_json(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        request = urllib.request.Request(
+            self.base_url + path,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": self.api_key,
+                "User-Agent": "smart-wardrobe-ss928/1.0",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return self._read_json_response(response)
+
+    def _post_photo(self, cloud_id: str, photo_path: pathlib.Path) -> Dict[str, Any]:
+        boundary = "----SmartWardrobeCloudSync%d" % int(time.time() * 1000)
+        filename = photo_path.name.replace("\\", "_").replace('"', "_")
+        content_type = mimetypes.guess_type(str(photo_path))[0] or "image/jpeg"
+        head = (
+            "--%s\r\n"
+            'Content-Disposition: form-data; name="photo"; filename="%s"\r\n'
+            "Content-Type: %s\r\n\r\n"
+        ) % (boundary, filename, content_type)
+        tail = "\r\n--%s--\r\n" % boundary
+        body = head.encode("utf-8") + photo_path.read_bytes() + tail.encode("utf-8")
+        request = urllib.request.Request(
+            "%s/api/wardrobe/items/%s/photo" % (self.base_url, urllib.parse.quote(cloud_id, safe="")),
+            data=body,
+            headers={
+                "Content-Type": "multipart/form-data; boundary=%s" % boundary,
+                "Content-Length": str(len(body)),
+                "x-api-key": self.api_key,
+                "User-Agent": "smart-wardrobe-ss928/1.0",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return self._read_json_response(response)
+
+    def _read_json_response(self, response: Any) -> Dict[str, Any]:
+        body = response.read()
+        if not body:
+            return {}
+        try:
+            return json.loads(body.decode("utf-8"))
+        except json.JSONDecodeError:
+            return {"body": body.decode("utf-8", "ignore")[:500]}
+
+    def _summarize_item_response(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
+        return {
+            "id": item.get("id"),
+            "imageUrl": item.get("imageUrl") or item.get("image_url"),
+        }
+
+    def _error_message(self, exc: Exception) -> str:
+        try:
+            body = exc.read().decode("utf-8", "ignore")  # type: ignore[attr-defined]
+            if body:
+                return "%s: %s" % (exc, body[:500])
+        except Exception:
+            pass
+        return str(exc)[:500]
 
 
 def season_for_temperature(temp_c: float) -> str:

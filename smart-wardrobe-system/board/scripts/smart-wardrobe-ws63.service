@@ -1,0 +1,16 @@
+[Unit]
+Description=Smart Wardrobe WS63 serial bridge
+After=smart-wardrobe.service
+Requires=smart-wardrobe.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/workspace/smart-wardrobe
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/root/workspace/smart-wardrobe/.env
+ExecStart=/usr/bin/python3 /root/workspace/smart-wardrobe/tools/ws63_serial_bridge.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
