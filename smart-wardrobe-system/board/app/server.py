@@ -376,6 +376,15 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                 "display_image_path": "",
             }
             patch.update(self.apply_merchant_image(temp_payload))
+        elif base_item and base_item.get("image_path"):
+            temp_payload = {
+                **base_item,
+                **payload,
+                **patch,
+                "display_image_url": "",
+                "display_image_path": "",
+            }
+            patch.update(self.apply_display_image(temp_payload))
         result = {
             "source": source,
             "candidate_images": candidate_images,
@@ -384,6 +393,9 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
         }
         if selected_image:
             result["ok"] = bool(patch.get("display_image_url"))
+        elif patch.get("display_image_url"):
+            result["ok"] = True
+            result["message"] = "Taobao link was saved; merchant image was blocked, so a display card was generated from the local stocked photo."
         else:
             result["ok"] = False
             result["message"] = "Taobao link was parsed, but no merchant image was available without Open Platform API; paste a merchant image URL to create the display card."

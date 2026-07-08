@@ -181,7 +181,7 @@ function renderRecommendations() {
   els.todayTitle.textContent = "今日搭配";
   els.todaySummary.textContent = first.summary || `推荐分 ${first.score}`;
   renderOutfitBoard(first);
-  els.recommendList.innerHTML = recommendations
+  els.recommendList.innerHTML = renderWardrobeSampleSection() + recommendations
     .slice(1, 3)
     .map((rec, index) => {
       const items = (rec.items || []).map(renderOutfitCard).join("");
@@ -223,6 +223,23 @@ function renderOutfitCard(item) {
       <strong>${escapeHtml(item.name)}</strong>
       <span>${escapeHtml(item.color || categoryLabel(item.category))}</span>
     </article>
+  `;
+}
+
+function renderWardrobeSampleSection() {
+  if (!state.clothes.length) return "";
+  const items = state.clothes.map(renderOutfitCard).join("");
+  return `
+    <section class="recommend-card wardrobe-sample-section">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Samples</p>
+          <h3>已入库衣服样本</h3>
+        </div>
+        <span class="score">${escapeHtml(state.clothes.length)}</span>
+      </div>
+      <div class="outfit-row sample-row">${items}</div>
+    </section>
   `;
 }
 

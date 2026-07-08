@@ -346,6 +346,19 @@ button:disabled {
   padding: 4px 0 10px;
 }
 
+.wardrobe-sample-section {
+  margin-top: 6px;
+}
+
+.sample-row {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.sample-row .outfit-card {
+  background: #f7f8fc;
+}
+
 .score {
   min-width: 46px;
   min-height: 46px;
