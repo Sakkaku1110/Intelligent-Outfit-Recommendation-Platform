@@ -13,6 +13,7 @@ smart-wardrobe-system/vision_lab/tmp_train_check/
 smart-wardrobe-system/vision_lab/tmp_studio_check/
 smart-wardrobe-system/vision_lab/tmp_cloud_check/
 smart-wardrobe-system/vision_lab/demo_dataset_cloud/
+smart-wardrobe-system/vision_lab/llm_training_runs/
 
 # Local screenshots and temporary captures
 *.png

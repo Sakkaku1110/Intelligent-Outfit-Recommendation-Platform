@@ -107,6 +107,46 @@ python smart-wardrobe-system\vision_lab\train_on_board.py --dataset smart-wardro
 
 如果没有配置 key，板端会自动回退到取景框裁剪，不影响入库演示。
 
+## 2.2 大模型训练代码（默认不调用）
+
+仓库现在提供两段离线训练准备代码，但板端服务、前端和启动脚本都不会自动调用它们：
+
+- `llm_training.py`：公共训练数据构建函数。
+- `train_llm_model.py`：生成基础穿搭推荐大模型 SFT 数据。
+- `train_user_preference_llm.py`：根据用户喜爱分或反馈事件生成继续训练数据。
+
+基础穿搭大模型训练数据：
+
+```powershell
+python smart-wardrobe-system\vision_lab\train_llm_model.py
+```
+
+如果要使用板端真实衣柜数据库：
+
+```powershell
+python smart-wardrobe-system\vision_lab\train_llm_model.py --db smart-wardrobe-system\board\data\wardrobe.db
+```
+
+根据用户喜好做继续训练数据：
+
+```powershell
+python smart-wardrobe-system\vision_lab\train_user_preference_llm.py --db smart-wardrobe-system\board\data\wardrobe.db
+```
+
+也可以传入用户反馈事件，支持 JSONL、JSON 数组或 CSV：
+
+```powershell
+python smart-wardrobe-system\vision_lab\train_user_preference_llm.py --db smart-wardrobe-system\board\data\wardrobe.db --feedback user_feedback.jsonl
+```
+
+脚本只会生成训练文件和 `training_manifest.json`，并打印 `training_started=false`。默认输出目录是：
+
+```text
+smart-wardrobe-system\vision_lab\llm_training_runs
+```
+
+这个目录已加入 `.gitignore`，避免误提交用户数据、训练样本和模型产物。
+
 ## 3. 从板子同步已入库样本
 
 如果已经在智能衣柜 App 里入库过衣服，可以同步出来做评测：
