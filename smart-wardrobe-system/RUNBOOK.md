@@ -143,7 +143,71 @@ SS928 板子运行后端和数据库
 - Android 平板内嵌：板子只提供网页服务，平板作为独立触控终端
 - 推荐优先使用 Android 平板方案，稳定、成本低、调试简单
 
-## 9. 常见问题
+## 9. WS63 串口测试
+
+Mac 已经识别到 CH340 串口时，会看到类似：
+
+```bash
+ls /dev/cu.*
+```
+
+```text
+/dev/cu.wchusbserial130
+```
+
+先只监听 WS63 输出：
+
+```bash
+python smart-wardrobe-system/board/tools/test_ws63_serial.py \
+  --port /dev/cu.wchusbserial130 \
+  --baud 115200 \
+  --raw
+```
+
+如果 WS63 程序已经按“一行一个 JSON”输出光谱数据，可以直接转发到后端：
+
+```bash
+python smart-wardrobe-system/board/tools/test_ws63_serial.py \
+  --port /dev/cu.wchusbserial130 \
+  --baud 115200 \
+  --post-to http://127.0.0.1:8000/api/ws63/sensor
+```
+
+建议 WS63 输出格式：
+
+```json
+{"device":"WS63","sensor":"GY-AS7341","channels":{"f1":123,"f2":118,"f3":97,"f4":90,"f5":76,"f6":61,"f7":54,"f8":49},"clear":320,"nir":42}
+```
+
+如果一直没有输出，优先检查：
+
+- WS63 是否已经烧录了串口打印程序
+- 波特率是否是 `115200`
+- GY-AS7341 接线是否为 `VCC -> 3.3V`、`GND -> GND`、`SCL -> SCL`、`SDA -> SDA`
+- 重新插拔 USB 后串口号是否变化
+
+WS63 端读取 GY-AS7341 的测试代码在：
+
+```text
+smart-wardrobe-system/ws63/as7341_test/as7341_spectral_test.c
+```
+
+把它复制进 WS63 SDK 工程后，需要先用 SDK 的 I2C 函数替换文件顶部的：
+
+```c
+ws63_i2c_write_reg(...)
+ws63_i2c_read_reg(...)
+ws63_delay_ms(...)
+ws63_log(...)
+```
+
+然后在 WS63 应用任务里调用：
+
+```c
+as7341_test_loop();
+```
+
+## 10. 常见问题
 
 ### 网页打不开
 
