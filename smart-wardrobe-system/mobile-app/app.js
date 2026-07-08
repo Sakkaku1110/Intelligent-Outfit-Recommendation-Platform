@@ -680,4 +680,8 @@ if (savedCity) els.city.value = savedCity;
 if (els.cameraStream && location.protocol.startsWith("http")) {
   els.cameraStream.src = apiUrl("/api/camera/stream");
 }
+const initialView = new URLSearchParams(location.search).get("view");
+if (["today", "capture", "wardrobe"].includes(initialView)) {
+  activateView(initialView);
+}
 loadAll();

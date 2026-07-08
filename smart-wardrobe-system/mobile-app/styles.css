@@ -42,7 +42,7 @@ button {
 }
 
 .app-shell {
-  width: min(100%, 1180px);
+  width: min(100%, 1840px);
   margin: 0 auto;
   padding: 18px 18px calc(96px + env(safe-area-inset-bottom));
 }
@@ -534,8 +534,8 @@ button:disabled {
 
 .wardrobe-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 18px;
   align-items: start;
 }
 
@@ -723,7 +723,7 @@ button:disabled {
 
 @media (max-width: 980px) {
   .wardrobe-grid {
-    grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   }
 }
 
