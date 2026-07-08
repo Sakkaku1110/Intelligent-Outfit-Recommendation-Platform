@@ -51,7 +51,7 @@
           <div class="quick-card" @click="activeTab = 'wardrobe'">
             <i class="ri-door-closed-line"></i>
             <h4>我的衣柜</h4>
-            <p>{{ mockClothes.length }}件单品</p>
+            <p>{{ mockClothes.length }}件单品 · {{ wardrobeSourceLabel }}</p>
           </div>
           <div class="quick-card" @click="activeTab = 'calendar'">
             <i class="ri-calendar-check-line"></i>
@@ -67,7 +67,14 @@
             <h2>我的衣柜</h2>
             <p>{{ selectedCategory }} · 找到 {{ filteredClothes.length }} 件 · {{ wardrobeSourceLabel }}</p>
           </div>
-          <button class="mini-outline-btn" @click="clearWardrobeFilters">重置</button>
+          <button class="mini-outline-btn" @click="refreshWardrobeFromCloud">
+            {{ wardrobeLoading ? '同步中' : '刷新云端' }}
+          </button>
+        </div>
+
+        <div v-if="wardrobeLoadError" class="cloud-warning">
+          <i class="ri-wifi-off-line"></i>
+          云端衣柜加载失败，当前显示本地演示数据：{{ wardrobeLoadError }}
         </div>
 
         <div class="ai-camera-entry capsule-card" @click="triggerCameraMock">
@@ -138,7 +145,7 @@
         <div class="match-hero capsule-card">
           <span class="tag-ai">搭配工作台</span>
           <h2>{{ currentScene }}穿搭推荐</h2>
-          <p>{{ weather.city }}当前 {{ weather.temperature }}°C / {{ weather.condition }}，系统会先用虚拟衣物库做天气适配。</p>
+          <p>{{ weather.city }}当前 {{ weather.temperature }}°C / {{ weather.condition }}，系统会使用{{ wardrobeSourceLabel }}做天气适配。</p>
         </div>
 
         <div class="match-input-box">
@@ -452,7 +459,9 @@ const selectedCloth = ref(null)
 const clothDetailModal = ref(null)
 const highlightedClothId = ref(0)
 const wardrobeSource = ref('demo')
+const wardrobeLoading = ref(false)
 const wardrobeLoadError = ref('')
+const wardrobeLastLoadedAt = ref('')
 const selectedCalendarDate = ref(toDateKey(todayObj))
 const currentScene = ref('上班')
 const scenes = ['随机', '上班', '约会', '旅行', '运动', '休闲']
@@ -503,7 +512,11 @@ const weatherAdvice = computed(() => {
 const effectiveScene = computed(() => currentScene.value === '随机' ? randomScene.value : currentScene.value)
 const todayRecommendation = computed(() => buildRecommendation('上班'))
 const matchRecommendation = computed(() => buildRecommendation(effectiveScene.value))
-const wardrobeSourceLabel = computed(() => wardrobeSource.value === 'cloud' ? '云端真实衣柜' : '本地演示衣柜')
+const wardrobeSourceLabel = computed(() => {
+  if (wardrobeLoading.value) return '云端同步中'
+  if (wardrobeSource.value === 'cloud') return `云端真实衣柜${wardrobeLastLoadedAt.value ? ` ${wardrobeLastLoadedAt.value}` : ''}`
+  return '本地演示衣柜'
+})
 
 const syncDocumentTheme = (mode) => {
   const isDark = mode === 'dark'
@@ -778,11 +791,47 @@ const mockClothes = ref([
 
 const fallbackClothImage = 'https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?auto=format&fit=crop&w=500&q=80'
 
+const cloudTypeMap = {
+  top: '衬衫/T恤',
+  shirt: '衬衫/T恤',
+  tshirt: '衬衫/T恤',
+  bottom: '日常裤装',
+  pants: '日常裤装',
+  outer: '夹克/皮衣',
+  jacket: '夹克/皮衣',
+  coat: '夹克/皮衣',
+  shoes: '鞋履',
+  shoe: '鞋履',
+}
+
+const cloudSeasonMap = {
+  spring_autumn: '春秋',
+  summer_light: '夏季',
+  summer_hot: '夏季',
+  winter: '冬季',
+  all: '四季',
+}
+
+const normalizeCloudType = (type) => {
+  const text = String(type || '').trim()
+  return cloudTypeMap[text.toLowerCase()] || text || '衬衫/T恤'
+}
+
+const normalizeCloudSeason = (season) => {
+  const tags = String(season || '').replace(/，/g, ',').replace(/、/g, ',').split(',')
+    .map(item => item.trim())
+    .filter(Boolean)
+  if (!tags.length) return '四季'
+  const labels = [...new Set(tags.map(tag => cloudSeasonMap[tag.toLowerCase()] || tag))]
+  if (labels.includes('四季') || labels.length >= 3) return '四季'
+  return labels.join('、')
+}
+
 const normalizeCloudCloth = (item) => ({
   id: item.id,
   name: item.name || '未命名衣物',
-  type: item.type || '衬衫/T恤',
-  season: item.season || '四季',
+  type: normalizeCloudType(item.type),
+  season: normalizeCloudSeason(item.season),
   color: item.color || '未知',
   count: Number(item.count || 0),
   img: item.img || item.imageUrl || fallbackClothImage,
@@ -795,21 +844,33 @@ const normalizeCloudCloth = (item) => ({
 
 const loadWardrobeFromCloud = async () => {
   if (!wardrobeApiBase) return
+  wardrobeLoading.value = true
 
   try {
-    const response = await fetch(`${wardrobeApiBase}/api/wardrobe/items`)
+    const response = await fetch(`${wardrobeApiBase}/api/wardrobe/items?t=${Date.now()}`, {
+      cache: 'no-store',
+    })
     if (!response.ok) throw new Error(`wardrobe api failed: ${response.status}`)
     const payload = await response.json()
     const items = Array.isArray(payload) ? payload : payload.items
     if (!Array.isArray(items)) throw new Error('wardrobe api response missing items')
-    mockClothes.value = items.map(normalizeCloudCloth)
+    mockClothes.value = items
+      .filter(item => item.source !== 'ss928' || item.id !== 'cloth_demo_001')
+      .map(normalizeCloudCloth)
     wardrobeSource.value = 'cloud'
     wardrobeLoadError.value = ''
+    wardrobeLastLoadedAt.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   } catch (error) {
     console.warn('云端真实衣柜加载失败，继续使用本地演示衣柜', error)
     wardrobeSource.value = 'demo'
     wardrobeLoadError.value = error.message || '云端衣柜加载失败'
+  } finally {
+    wardrobeLoading.value = false
   }
+}
+
+const refreshWardrobeFromCloud = async () => {
+  await loadWardrobeFromCloud()
 }
 
 const filteredClothes = computed(() => {
@@ -1084,10 +1145,21 @@ const triggerCameraMock = () => {
   showNotice('真实衣柜入库', '后续由 SS928 识别衣物并上传到云端接口，App 会自动同步云端真实衣柜。', 'info')
 }
 
+const handleAppVisible = () => {
+  if (document.visibilityState === 'visible') {
+    loadWardrobeFromCloud()
+  }
+}
+
 onMounted(() => {
   syncDocumentTheme(themeMode.value)
   loadWeatherByIp()
   loadWardrobeFromCloud()
+  document.addEventListener('visibilitychange', handleAppVisible)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', handleAppVisible)
 })
 </script>
 
@@ -1122,6 +1194,8 @@ onMounted(() => {
 .badge { font-size: 10px; background: #000; color: #fff; padding: 5px 10px; font-weight: bold; border-radius: 20px; white-space: nowrap; }
 
 .page-content { width: 100%; max-width: 520px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.cloud-warning { display: flex; align-items: flex-start; gap: 8px; text-align: left; background: #FFF7E6; color: #7A4A00; border: 1px solid #FFE1A6; border-radius: 8px; padding: 10px 12px; font-size: 12px; font-weight: 700; line-height: 1.5; }
+.cloud-warning i { font-size: 16px; margin-top: 1px; }
 .capsule-card { background: #FFFFFF; border: 1px solid #E5E5E5; border-radius: 24px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.015); overflow: hidden; }
 
 .ai-camera-entry { padding: 18px 20px; background: #000000 !important; color: #FFFFFF !important; cursor: pointer; transition: all 0.2s ease; }
@@ -1452,6 +1526,7 @@ onMounted(() => {
 .theme-dark .pairing-card { background: #171A20; border-color: #303744; color: #F4F6FA; }
 .theme-dark .pairing-card small,
 .theme-dark .pairing-title-row span { color: #AAB2C0; }
+.theme-dark .cloud-warning { background: #2A2110; border-color: #5A4218; color: #FFD88A; }
 .theme-dark .app-dialog-overlay { background: rgba(0, 0, 0, 0.58); }
 .theme-dark .app-dialog-card { background: rgba(23, 26, 32, 0.96); color: #F4F6FA; border-color: #303744; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.46); }
 .theme-dark .app-dialog-icon.dialog-success { background: #F4F6FA; color: #050507; }

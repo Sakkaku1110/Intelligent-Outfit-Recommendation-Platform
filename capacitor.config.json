@@ -1,5 +1,11 @@
 {
   "appId": "com.williams.clothesai",
   "appName": "ClothesAI",
-  "webDir": "dist"
+  "webDir": "dist",
+  "server": {
+    "cleartext": true,
+    "allowNavigation": [
+      "8.137.206.120"
+    ]
+  }
 }
