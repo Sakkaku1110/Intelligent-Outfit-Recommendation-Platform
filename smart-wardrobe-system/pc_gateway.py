@@ -36,6 +36,8 @@ HOP_BY_HOP = {
 }
 
 LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+UPLOAD_ROOT = pathlib.Path(__file__).resolve().parent / "board" / "data" / "uploads"
+CATALOG_ROOT = UPLOAD_ROOT / "catalog"
 
 
 def first_url(text: object) -> str:
@@ -119,6 +121,24 @@ def jpeg_data_url(image) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buffer.tobytes()).decode("ascii")
 
 
+def safe_catalog_slug(payload: dict) -> str:
+    text = "_".join(
+        str(payload.get(key) or "")
+        for key in ("name", "category", "color", "source_item_id")
+    )
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", text).strip("_").lower()
+    return (slug[:64] or "catalog_item") + ".jpg"
+
+
+def create_catalog_card_file(payload: dict) -> str:
+    data_url = create_catalog_card(payload)
+    _, encoded = data_url.split(",", 1)
+    CATALOG_ROOT.mkdir(parents=True, exist_ok=True)
+    filename = safe_catalog_slug(payload)
+    (CATALOG_ROOT / filename).write_bytes(base64.b64decode(encoded))
+    return "/uploads/catalog/%s" % filename
+
+
 def create_catalog_card(payload: dict) -> str:
     import cv2  # type: ignore
     import numpy as np  # type: ignore
@@ -187,7 +207,7 @@ def build_taobao_patch(payload: dict) -> dict:
         "source_title": "",
         "resolved_by": "manual",
     }
-    display_url = create_catalog_card({**payload, **source})
+    display_url = create_catalog_card_file({**payload, **source})
     patch = {
         "source_platform": "taobao",
         "source_url": source_url,
@@ -223,6 +243,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_HEAD(self) -> None:
+        if self.serve_local_upload(write_body=False):
+            return
         if self.should_serve_local():
             self.serve_local(write_body=False)
             return
@@ -231,6 +253,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/__gateway":
             self.send_gateway_health()
+            return
+        if self.serve_local_upload(write_body=True):
             return
         if self.should_serve_local():
             self.serve_local(write_body=True)
@@ -311,6 +335,33 @@ class GatewayHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/") or path.startswith("/uploads/") or path.startswith("/__cloud/"):
             return False
         return self.command in {"GET", "HEAD"}
+
+    def serve_local_upload(self, write_body: bool) -> bool:
+        path = urllib.parse.urlparse(self.path).path
+        if not path.startswith("/uploads/"):
+            return False
+        file_path = UPLOAD_ROOT / path.removeprefix("/uploads/")
+        try:
+            resolved = file_path.resolve()
+            root = UPLOAD_ROOT.resolve()
+            if root not in resolved.parents and resolved != root:
+                self.send_error(HTTPStatus.FORBIDDEN)
+                return True
+            if not resolved.exists() or not resolved.is_file():
+                return False
+            content_type = mimetypes.guess_type(str(resolved))[0] or "application/octet-stream"
+            body = resolved.read_bytes() if write_body else b""
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(resolved.stat().st_size))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if write_body:
+                self.wfile.write(body)
+            return True
+        except Exception as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return True
 
     def serve_local(self, write_body: bool) -> None:
         path = urllib.parse.urlparse(self.path).path
