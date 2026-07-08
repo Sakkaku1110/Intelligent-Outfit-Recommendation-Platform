@@ -471,6 +471,7 @@ const themeMode = ref(localStorage.getItem('clothesai-theme') || 'light')
 const wardrobeCategories = ['全部', '衬衫/T恤', '卫衣/针织', '夹克/皮衣', '日常裤装', '鞋履']
 let backgroundScrollTimer = 0
 const wardrobeApiBase = (import.meta.env.VITE_WARDROBE_API_BASE || '').replace(/\/$/, '')
+const wardrobeDeviceId = String(import.meta.env.VITE_WARDROBE_DEVICE_ID || 'ss928_001').trim()
 const appDialog = ref({
   visible: false,
   variant: 'success',
@@ -842,6 +843,14 @@ const normalizeCloudCloth = (item) => ({
   lastSeenAt: item.lastSeenAt || item.updatedAt || '',
 })
 
+const belongsToCurrentWardrobe = (item) => {
+  if (!item || item.id === 'cloth_demo_001') return false
+  if (!wardrobeDeviceId) return true
+  const source = String(item.source || item.deviceId || '')
+  const id = String(item.id || '')
+  return source === wardrobeDeviceId || id.startsWith(`${wardrobeDeviceId}_`)
+}
+
 const loadWardrobeFromCloud = async () => {
   if (!wardrobeApiBase) return
   wardrobeLoading.value = true
@@ -855,7 +864,7 @@ const loadWardrobeFromCloud = async () => {
     const items = Array.isArray(payload) ? payload : payload.items
     if (!Array.isArray(items)) throw new Error('wardrobe api response missing items')
     mockClothes.value = items
-      .filter(item => item.source !== 'ss928' || item.id !== 'cloth_demo_001')
+      .filter(belongsToCurrentWardrobe)
       .map(normalizeCloudCloth)
     wardrobeSource.value = 'cloud'
     wardrobeLoadError.value = ''

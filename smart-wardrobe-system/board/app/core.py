@@ -1104,9 +1104,10 @@ class CloudSyncClient:
             "timeout_sec": self.timeout,
         }
 
-    def sync_items(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def sync_items(self, items: List[Dict[str, Any]], prune_stale: bool = False) -> Dict[str, Any]:
         results = [self.sync_item(item) for item in items]
         failed = [item for item in results if not item.get("ok")]
+        prune_result = self.prune_remote_items(items) if prune_stale else {"enabled": False}
         return {
             **self.status(),
             "ok": self.configured() and not failed,
@@ -1114,8 +1115,52 @@ class CloudSyncClient:
             "metadata_uploaded": sum(1 for item in results if item.get("metadata_uploaded")),
             "photo_uploaded": sum(1 for item in results if item.get("photo_uploaded")),
             "failed": len(failed),
+            "prune_stale": prune_result,
             "items": results,
         }
+
+    def prune_remote_items(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "enabled": True,
+            "deleted": 0,
+            "failed": 0,
+            "stale_ids": [],
+            "errors": [],
+        }
+        if not self.configured():
+            result["enabled"] = False
+            result["reason"] = "missing_cloud_config"
+            return result
+        expected_ids = {self._cloud_id(item) for item in items}
+        try:
+            payload = self._get_json("/api/wardrobe/items")
+        except Exception as exc:
+            result["failed"] = 1
+            result["reason"] = "remote_list_failed"
+            result["errors"].append(self._error_message(exc))
+            return result
+
+        remote_items = payload.get("items") if isinstance(payload.get("items"), list) else []
+        stale_ids: List[str] = []
+        device_prefix = self._device_prefix()
+        for item in remote_items:
+            if not isinstance(item, dict):
+                continue
+            remote_id = str(item.get("id") or "")
+            remote_source = str(item.get("source") or item.get("deviceId") or "")
+            belongs_to_device = remote_source == self.device_id or remote_id.startswith(device_prefix)
+            if belongs_to_device and remote_id and remote_id not in expected_ids:
+                stale_ids.append(remote_id)
+
+        result["stale_ids"] = stale_ids
+        for remote_id in stale_ids:
+            try:
+                self._delete_json("/api/wardrobe/items/%s" % urllib.parse.quote(remote_id, safe=""))
+                result["deleted"] += 1
+            except Exception as exc:
+                result["failed"] += 1
+                result["errors"].append({"id": remote_id, "error": self._error_message(exc)})
+        return result
 
     def sync_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
         cloud_id = self._cloud_id(item)
@@ -1163,10 +1208,16 @@ class CloudSyncClient:
         return result
 
     def _cloud_id(self, item: Dict[str, Any]) -> str:
-        safe_device = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.device_id).strip("_") or "ss928"
+        safe_device = self._safe_device_id()
         local_id = str(item.get("id") or "unknown")
         safe_local = re.sub(r"[^A-Za-z0-9_.-]+", "_", local_id).strip("_") or "unknown"
         return "%s_%s" % (safe_device, safe_local)
+
+    def _safe_device_id(self) -> str:
+        return re.sub(r"[^A-Za-z0-9_.-]+", "_", self.device_id).strip("_") or "ss928"
+
+    def _device_prefix(self) -> str:
+        return "%s_" % self._safe_device_id()
 
     def _item_payload(self, item: Dict[str, Any], cloud_id: str) -> Dict[str, Any]:
         analysis = item.get("ai_analysis") if isinstance(item.get("ai_analysis"), dict) else {}
@@ -1268,6 +1319,30 @@ class CloudSyncClient:
                 "User-Agent": "smart-wardrobe-ss928/1.0",
             },
             method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return self._read_json_response(response)
+
+    def _get_json(self, path: str) -> Dict[str, Any]:
+        request = urllib.request.Request(
+            self.base_url + path,
+            headers={
+                "x-api-key": self.api_key,
+                "User-Agent": "smart-wardrobe-ss928/1.0",
+            },
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return self._read_json_response(response)
+
+    def _delete_json(self, path: str) -> Dict[str, Any]:
+        request = urllib.request.Request(
+            self.base_url + path,
+            headers={
+                "x-api-key": self.api_key,
+                "User-Agent": "smart-wardrobe-ss928/1.0",
+            },
+            method="DELETE",
         )
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
             return self._read_json_response(response)

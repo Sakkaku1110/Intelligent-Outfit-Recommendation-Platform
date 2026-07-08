@@ -245,13 +245,15 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
             elif path == "/api/cloud/sync":
                 payload = self.read_json(allow_empty=True)
                 items = self.db.list_clothes()
+                full_sync = payload.get("id") is None and not payload.get("ids")
                 if payload.get("id") is not None:
                     requested = {str(payload.get("id"))}
                     items = [item for item in items if str(item.get("id")) in requested]
                 elif payload.get("ids"):
                     requested = {str(item_id) for item_id in payload.get("ids") or []}
                     items = [item for item in items if str(item.get("id")) in requested]
-                self.send_json(self.cloud_sync.sync_items(items))
+                prune_stale = bool(payload.get("prune_stale", full_sync)) if full_sync else False
+                self.send_json(self.cloud_sync.sync_items(items, prune_stale=prune_stale))
             elif path == "/api/ws63/sensor":
                 payload = self.read_json()
                 saved = save_ws63_payload(DATA_ROOT / "ws63_latest.json", payload)
