@@ -2,7 +2,7 @@
   <div class="clothes-app-dark" :class="themeClass">
     <header class="app-header">
       <div class="brand">
-        <i class="ri-cpu-line"></i>
+        <img class="brand-logo" src="/brand/clothesai-logo-mark.svg" alt="" />
         <span>ClothesAI <small>衣智柜</small></span>
       </div>
       <div class="header-status">
@@ -1196,6 +1196,7 @@ onBeforeUnmount(() => {
 .app-body { width: 100%; min-width: 0; padding-top: calc(62px + env(safe-area-inset-top)); }
 .app-header { background: #FFFFFF; padding: calc(14px + env(safe-area-inset-top)) 16px 14px; border-bottom: 1px solid #EEF0F2; display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; position: fixed; top: 0; left: 0; right: 0; z-index: 10000; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.035); }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 900; font-size: clamp(17px, 5vw, 22px); min-width: 0; }
+.brand-logo { width: 28px; height: 28px; border-radius: 8px; flex: 0 0 auto; display: block; }
 .brand span { min-width: 0; white-space: nowrap; }
 .brand small { font-weight: normal; font-size: 11px; color: #888; }
 .header-status { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }

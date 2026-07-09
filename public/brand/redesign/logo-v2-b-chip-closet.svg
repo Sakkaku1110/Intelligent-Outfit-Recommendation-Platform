@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">ClothesAI V2 B Chip Closet</title>
+  <desc id="desc">A smart wardrobe logo with an integrated AI chip panel.</desc>
+  <rect width="64" height="64" rx="16" fill="#0F1115"/>
+  <path d="M16 18c0-3.3 2.7-6 6-6h20c3.3 0 6 2.7 6 6v28c0 3.3-2.7 6-6 6H22c-3.3 0-6-2.7-6-6z" fill="none" stroke="#F4F6FA" stroke-width="3.6"/>
+  <rect x="24" y="23" width="16" height="18" rx="4" fill="none" stroke="#00FF66" stroke-width="3"/>
+  <path d="M27 18v5M32 18v5M37 18v5M27 41v5M32 41v5M37 41v5M19 28h5M19 36h5M40 28h5M40 36h5" fill="none" stroke="#00FF66" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M28.2 36.2 31 27.8l2.8 8.4M29.2 33.5h3.6M36.2 28v8.2" fill="none" stroke="#F4F6FA" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 104" role="img" aria-labelledby="title desc">
+  <title id="title">ClothesAI 衣智柜 final logo</title>
+  <desc id="desc">Final horizontal logo combining the Closet Spark smart wardrobe mark with bilingual wordmark.</desc>
+  <rect x="8" y="8" width="88" height="88" rx="22" fill="#0F1115"/>
+  <path d="M35 31c0-5 4-9 9-9h24c5 0 9 4 9 9v42c0 5-4 9-9 9H44c-5 0-9-4-9-9z" fill="none" stroke="#F4F6FA" stroke-width="5"/>
+  <path d="M56 23.5v57" fill="none" stroke="#F4F6FA" stroke-width="3.8" stroke-linecap="round"/>
+  <path d="M45 39h22M45 65h22" fill="none" stroke="#F4F6FA" stroke-width="4" stroke-linecap="round"/>
+  <path d="M56 45 59.5 53 68 56l-8.5 3L56 67l-3.5-8L44 56l8.5-3z" fill="#00FF66"/>
+  <text x="120" y="49" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="35" font-weight="850" letter-spacing="-.5">ClothesAI</text>
+  <text x="122" y="75" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="17" font-weight="700">衣智柜 · 智能穿搭推荐平台</text>
+  <path d="M339 26h42c12 0 22 10 22 22s-10 22-22 22h-42c-12 0-22-10-22-22s10-22 22-22Z" fill="#F1F3F5"/>
+  <circle cx="340" cy="48" r="9" fill="#00FF66"/>
+  <path d="M357 43h26M357 53h17" stroke="#0F1115" stroke-width="4" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 760" role="img" aria-labelledby="title desc">
+  <title id="title">ClothesAI logo concepts comparison</title>
+  <desc id="desc">Four logo concepts with a final recommendation for the ClothesAI smart wardrobe platform.</desc>
+  <rect width="1160" height="760" fill="#F6F7F9"/>
+  <text x="56" y="72" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="34" font-weight="850">ClothesAI 衣智柜 Logo 方案对比</text>
+  <text x="56" y="108" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="18" font-weight="650">目标：智能衣柜 + AI 推荐 + NPU 在线感；适配 App header、favicon、文档封面和比赛展示。</text>
+
+  <g transform="translate(56 152)">
+    <rect width="500" height="220" rx="20" fill="#FFFFFF" stroke="#DDE2EA"/>
+    <text x="28" y="42" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="22" font-weight="850">A. Closet Spark</text>
+    <text x="28" y="70" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="14" font-weight="650">双门衣柜 + AI 星标，清爽且避免人形联想</text>
+    <rect x="30" y="98" width="76" height="76" rx="19" fill="#0F1115"/>
+    <path d="M52 119c0-4 3-7 7-7h18c4 0 7 3 7 7v36c0 4-3 7-7 7H59c-4 0-7-3-7-7z" fill="none" stroke="#F4F6FA" stroke-width="4"/>
+    <path d="M68 113v48" fill="none" stroke="#F4F6FA" stroke-width="3" stroke-linecap="round"/>
+    <path d="M59 125h18M59 151h18" fill="none" stroke="#F4F6FA" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M68 131.5 71 138l6.5 2.5-6.5 2.5-3 6.5-3-6.5-6.5-2.5 6.5-2.5z" fill="#00FF66"/>
+    <text x="132" y="132" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="30" font-weight="850">ClothesAI</text>
+    <text x="134" y="160" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="16" font-weight="700">衣智柜</text>
+    <text x="350" y="132" fill="#00A347" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="16" font-weight="850">推荐</text>
+    <text x="350" y="160" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="28" font-weight="900">96/100</text>
+  </g>
+
+  <g transform="translate(604 152)">
+    <rect width="500" height="220" rx="20" fill="#FFFFFF" stroke="#DDE2EA"/>
+    <text x="28" y="42" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="22" font-weight="850">B. Fit Loop</text>
+    <text x="28" y="70" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="14" font-weight="650">C 字母 + 穿搭闭环，品牌感强但衣柜语义稍弱</text>
+    <circle cx="68" cy="137" r="42" fill="none" stroke="#007AFF" stroke-width="12" stroke-linecap="round" stroke-dasharray="180 84"/>
+    <path d="M48 146 68 126l20 20" fill="none" stroke="#0F1115" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="99" cy="107" r="7" fill="#00FF66"/>
+    <text x="132" y="132" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="30" font-weight="850">ClothesAI</text>
+    <text x="134" y="160" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="16" font-weight="700">智能穿搭闭环</text>
+    <text x="350" y="132" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="16" font-weight="850">备选</text>
+    <text x="350" y="160" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="28" font-weight="900">84/100</text>
+  </g>
+
+  <g transform="translate(56 420)">
+    <rect width="500" height="220" rx="20" fill="#FFFFFF" stroke="#DDE2EA"/>
+    <text x="28" y="42" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="22" font-weight="850">C. Neural Hanger</text>
+    <text x="28" y="70" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="14" font-weight="650">衣架电路化，AI 感明显，小尺寸略复杂</text>
+    <path d="M68 103c0-13 19-13 19 0 0 10-19 12-19 24" fill="none" stroke="#0F1115" stroke-width="5" stroke-linecap="round"/>
+    <path d="M39 166 78 129l39 37" fill="none" stroke="#0F1115" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M50 154h-18M106 154h20M78 129V96" fill="none" stroke="#007AFF" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="31" cy="154" r="6" fill="#00FF66"/>
+    <circle cx="126" cy="154" r="6" fill="#00FF66"/>
+    <circle cx="78" cy="96" r="6" fill="#00FF66"/>
+    <text x="152" y="132" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="30" font-weight="850">ClothesAI</text>
+    <text x="154" y="160" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="16" font-weight="700">Neural Wardrobe</text>
+    <text x="350" y="132" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="16" font-weight="850">备选</text>
+    <text x="350" y="160" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="28" font-weight="900">79/100</text>
+  </g>
+
+  <g transform="translate(604 420)">
+    <rect width="500" height="220" rx="20" fill="#FFFFFF" stroke="#DDE2EA"/>
+    <text x="28" y="42" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="22" font-weight="850">D. Closet Check</text>
+    <text x="28" y="70" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="14" font-weight="650">衣柜 + 勾选，可靠但更像任务清单工具</text>
+    <rect x="31" y="101" width="84" height="76" rx="18" fill="#F1F3F5" stroke="#0F1115" stroke-width="5"/>
+    <path d="M59 101v76M47 129h24M84 152l10 10 24-28" fill="none" stroke="#00A347" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="152" y="132" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="30" font-weight="850">ClothesAI</text>
+    <text x="154" y="160" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="16" font-weight="700">穿搭确认</text>
+    <text x="350" y="132" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="16" font-weight="850">备选</text>
+    <text x="350" y="160" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="28" font-weight="900">76/100</text>
+  </g>
+
+  <rect x="56" y="686" width="1048" height="1" fill="#DDE2EA"/>
+  <text x="56" y="724" fill="#0F1115" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="20" font-weight="850">最终建议：A. Closet Spark</text>
+  <text x="332" y="724" fill="#68707C" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" font-size="16" font-weight="650">双门衣柜负责产品识别，绿色星标负责 AI 智能推荐，整体更清爽也更少误读。</text>
+</svg>

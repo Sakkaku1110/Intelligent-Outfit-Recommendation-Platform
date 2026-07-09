@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">ClothesAI V2 C Outfit Route</title>
+  <desc id="desc">A smart wardrobe logo with a recommendation route arrow.</desc>
+  <rect width="64" height="64" rx="16" fill="#0F1115"/>
+  <path d="M18 16.5c0-3 2.5-5.5 5.5-5.5h17c3 0 5.5 2.5 5.5 5.5v31c0 3-2.5 5.5-5.5 5.5h-17c-3 0-5.5-2.5-5.5-5.5z" fill="none" stroke="#F4F6FA" stroke-width="3.5"/>
+  <path d="M24 24h16M24 32h10M24 40h16" fill="none" stroke="#F4F6FA" stroke-width="3" stroke-linecap="round"/>
+  <path d="M36 31.5h10.5M42.5 27.5l4 4-4 4" fill="none" stroke="#00FF66" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="24" cy="24" r="2.3" fill="#00FF66"/>
+  <circle cx="24" cy="40" r="2.3" fill="#00FF66"/>
+</svg>

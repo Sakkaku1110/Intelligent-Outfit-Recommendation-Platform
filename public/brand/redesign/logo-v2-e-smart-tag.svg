@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">ClothesAI V2 E Smart Tag</title>
+  <desc id="desc">A smart wardrobe logo using a clothing tag and AI signal.</desc>
+  <rect width="64" height="64" rx="16" fill="#0F1115"/>
+  <path d="M20 15h18l10 10v22c0 3.3-2.7 6-6 6H20c-3.3 0-6-2.7-6-6V21c0-3.3 2.7-6 6-6Z" fill="none" stroke="#F4F6FA" stroke-width="3.6" stroke-linejoin="round"/>
+  <path d="M38 15v9c0 1.1.9 2 2 2h8" fill="none" stroke="#F4F6FA" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M23 35h16M23 43h10" fill="none" stroke="#F4F6FA" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="27" cy="25" r="3" fill="#00FF66"/>
+  <path d="M43 40.5c4 0 7.2 3.2 7.2 7.2M43 46.5c.7 0 1.2.5 1.2 1.2" fill="none" stroke="#00FF66" stroke-width="2.8" stroke-linecap="round"/>
+</svg>
