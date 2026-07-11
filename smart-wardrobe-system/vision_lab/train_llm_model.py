@@ -12,6 +12,7 @@ import pathlib
 import sys
 
 from llm_training import build_base_sft_bundle, load_wardrobe_items, now_tag, validate_jsonl
+from llm_trainer import LoraTrainingConfig, run_lora_training
 
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -24,6 +25,18 @@ def main() -> int:
     parser.add_argument("--out", default=str(ROOT / "llm_training_runs" / ("base_sft_" + now_tag())))
     parser.add_argument("--base-model", default="qwen2.5-7b-instruct")
     parser.add_argument("--max-examples", type=int, default=0)
+    parser.add_argument("--run-training", action="store_true", help="Launch LoRA SFT after writing JSONL.")
+    parser.add_argument("--model-out", default="", help="Output directory for LoRA adapter checkpoints.")
+    parser.add_argument("--epochs", type=float, default=3.0)
+    parser.add_argument("--learning-rate", type=float, default=2e-5)
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
+    parser.add_argument("--max-seq-length", type=int, default=2048)
+    parser.add_argument("--lora-rank", type=int, default=16)
+    parser.add_argument("--load-in-4bit", action="store_true")
+    parser.add_argument("--bf16", action="store_true")
+    parser.add_argument("--fp16", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", help="Validate training inputs without loading a model.")
     args = parser.parse_args()
 
     items = load_wardrobe_items(
@@ -46,7 +59,30 @@ def main() -> int:
     print("examples=%d" % bundle.examples)
     print("train_jsonl=%s" % train_file)
     print("manifest=%s" % bundle.manifest_path)
-    print("training_started=false")
+    if args.run_training:
+        model_out = pathlib.Path(args.model_out) if args.model_out else pathlib.Path(args.out) / "lora_sft_adapter"
+        result = run_lora_training(
+            LoraTrainingConfig(
+                mode="sft",
+                train_file=train_file,
+                output_dir=model_out,
+                base_model=args.base_model,
+                epochs=args.epochs,
+                learning_rate=args.learning_rate,
+                batch_size=args.batch_size,
+                gradient_accumulation_steps=args.gradient_accumulation_steps,
+                max_seq_length=args.max_seq_length,
+                lora_rank=args.lora_rank,
+                load_in_4bit=args.load_in_4bit,
+                bf16=args.bf16,
+                fp16=args.fp16,
+                dry_run=args.dry_run,
+            )
+        )
+        print("training_started=%s" % str(result["training_started"]).lower())
+        print("adapter_dir=%s" % result["output_dir"])
+    else:
+        print("training_started=false")
     return 0
 
 

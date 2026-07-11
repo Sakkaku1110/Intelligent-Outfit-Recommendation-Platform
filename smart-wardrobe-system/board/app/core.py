@@ -2574,6 +2574,134 @@ class RecommendationEngine:
         return result
 
 
+class LLMRecommendationClient:
+    """Optional remote LLM recommender with local-rule fallback."""
+
+    def __init__(self) -> None:
+        self.endpoint = os.environ.get("SMART_WARDROBE_LLM_URL", "").strip()
+        self.api_key = os.environ.get("SMART_WARDROBE_LLM_API_KEY", "").strip()
+        self.timeout = env_float("SMART_WARDROBE_LLM_TIMEOUT", 6.0)
+        self.enabled = env_flag("SMART_WARDROBE_LLM_ENABLED", bool(self.endpoint))
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "enabled": bool(self.enabled and self.endpoint),
+            "configured": bool(self.endpoint),
+            "endpoint": self._public_endpoint(),
+            "timeout_sec": self.timeout,
+            "mode": "remote_http" if self.endpoint else "local_rule_fallback",
+        }
+
+    def recommend(
+        self,
+        clothes: List[Dict[str, Any]],
+        weather: Dict[str, Any],
+        occasion: str,
+        local_result: Dict[str, Any],
+        user_preferences: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        if not self.enabled or not self.endpoint:
+            return self._with_status(local_result, "disabled")
+        payload = {
+            "task": "recommend_outfit",
+            "wardrobe": [self._compact_item(item) for item in clothes],
+            "weather": weather,
+            "occasion": occasion,
+            "user_preferences": user_preferences or {},
+            "local_recommendation": local_result,
+        }
+        started = time.perf_counter()
+        try:
+            remote = self._post_json(payload)
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            return self._merge_remote_result(local_result, remote, elapsed_ms)
+        except Exception as exc:
+            result = self._with_status(local_result, "fallback")
+            result["llm"]["error"] = str(exc)[:300]
+            result["llm"]["elapsed_ms"] = int((time.perf_counter() - started) * 1000)
+            return result
+
+    def _post_json(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "smart-wardrobe-ss928/1.0",
+        }
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+            headers["Authorization"] = "Bearer %s" % self.api_key
+        request = urllib.request.Request(self.endpoint, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            text = response.read().decode("utf-8-sig")
+        parsed = json.loads(text) if text.strip() else {}
+        if not isinstance(parsed, dict):
+            raise ValueError("LLM response must be a JSON object")
+        return parsed
+
+    def _merge_remote_result(
+        self,
+        local_result: Dict[str, Any],
+        remote: Dict[str, Any],
+        elapsed_ms: int,
+    ) -> Dict[str, Any]:
+        result = dict(local_result)
+        remote_recommendations = remote.get("recommendations")
+        if isinstance(remote_recommendations, list) and remote_recommendations:
+            result["recommendations"] = remote_recommendations[:3]
+            result["explain"] = remote.get("explain") or result.get("explain") or []
+            result["missing_categories"] = remote.get("missing_categories", result.get("missing_categories", []))
+            result["target_warmth"] = remote.get("target_warmth", result.get("target_warmth"))
+            result["season_hint"] = remote.get("season_hint", result.get("season_hint"))
+            result["llm"] = {
+                "status": "enhanced",
+                "source": str(remote.get("source") or "remote_llm"),
+                "model": str(remote.get("model") or ""),
+                "endpoint": self._public_endpoint(),
+                "elapsed_ms": elapsed_ms,
+            }
+            return result
+        result = self._with_status(result, "fallback")
+        result["llm"]["reason"] = "remote_response_without_recommendations"
+        result["llm"]["elapsed_ms"] = elapsed_ms
+        return result
+
+    def _with_status(self, local_result: Dict[str, Any], status: str) -> Dict[str, Any]:
+        result = dict(local_result)
+        result["llm"] = {
+            "status": status,
+            "source": "local_rule",
+            "endpoint": self._public_endpoint(),
+        }
+        return result
+
+    def _compact_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        keys = [
+            "id",
+            "name",
+            "category",
+            "color",
+            "material",
+            "season",
+            "occasion",
+            "warmth",
+            "formality",
+            "favorite_score",
+            "wear_count",
+            "note",
+            "image_url",
+            "display_image_url",
+        ]
+        return {key: item.get(key) for key in keys if item.get(key) not in (None, "")}
+
+    def _public_endpoint(self) -> str:
+        if not self.endpoint:
+            return ""
+        parsed = urllib.parse.urlparse(self.endpoint)
+        if parsed.netloc:
+            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+        return self.endpoint
+
+
 def save_ws63_payload(path: pathlib.Path, payload: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(payload)
     data["received_at"] = now_iso()

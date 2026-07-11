@@ -120,6 +120,26 @@ http://192.168.137.2:8000
 - 返回推荐理由
 - 在平板页面中展示推荐衣服组合；如果衣物有入库图片，会显示组合预览
 
+### 7.1 可选云端大模型增强
+
+板端 `/api/recommendations` 已支持可选的大模型增强推荐。默认不开启时继续使用本地规则推荐；开启后会把衣柜、天气、场景和本地规则结果发给云端 `/api/llm/recommend`，云端不可用时自动回退本地结果。
+
+板端 `.env` 示例：
+
+```bash
+SMART_WARDROBE_LLM_ENABLED=true
+SMART_WARDROBE_LLM_URL=http://YOUR_SERVER_IP/api/llm/recommend
+SMART_WARDROBE_LLM_API_KEY=your-long-random-write-key
+SMART_WARDROBE_LLM_TIMEOUT=6
+```
+
+状态检查：
+
+```bash
+curl http://192.168.137.2:8000/api/llm/status
+curl "http://192.168.137.2:8000/api/recommendations?city=Hangzhou&occasion=school"
+```
+
 ## 8. 平板触控屏方案
 
 当前建议使用“平板浏览器 + 板端 Web 服务”的方式：

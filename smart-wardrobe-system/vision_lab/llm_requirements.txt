@@ -1,0 +1,9 @@
+# Install on a PC/GPU training machine, not on the SS928 board runtime.
+torch>=2.2
+transformers>=4.44
+datasets>=2.20
+accelerate>=0.33
+peft>=0.12
+trl>=0.9
+bitsandbytes>=0.43; platform_system != "Darwin"
+safetensors>=0.4

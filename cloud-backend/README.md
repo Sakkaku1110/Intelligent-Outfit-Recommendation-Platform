@@ -95,6 +95,53 @@ Read items from the App:
 curl http://YOUR_SERVER_IP/api/wardrobe/items
 ```
 
+Check LLM recommendation status:
+
+```bash
+curl http://YOUR_SERVER_IP/api/llm/status
+```
+
+Ask the cloud LLM interface for a recommendation:
+
+```bash
+curl -X POST http://YOUR_SERVER_IP/api/llm/recommend \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your-long-random-write-key" \
+  -d '{
+    "occasion": "school",
+    "weather": {"city": "Hangzhou", "temperature_c": 22, "weather_text": "多云"},
+    "wardrobe": [
+      {"id": "top_1", "name": "白色Polo", "category": "top", "color": "white", "season": "spring_autumn,summer_light", "occasion": "school,casual", "warmth": 2, "favorite_score": 4},
+      {"id": "bottom_1", "name": "黑色长裤", "category": "bottom", "color": "black", "season": "all", "occasion": "school,casual", "warmth": 3, "favorite_score": 4},
+      {"id": "shoes_1", "name": "白色运动鞋", "category": "shoes", "color": "white", "season": "all", "occasion": "school,sport,casual", "warmth": 2, "favorite_score": 4}
+    ]
+  }'
+```
+
+By default this endpoint returns a deployable mock/fallback result with the same shape as the SS928 recommendation response. After the LoRA model is trained and served, set these variables in `.env`:
+
+```bash
+LLM_INFERENCE_URL=http://YOUR_MODEL_SERVER/v1/outfit/recommend
+LLM_API_KEY=optional-model-server-key
+LLM_MODEL=Qwen2.5-7B-Instruct-ClothesAI-LoRA
+LLM_FALLBACK=true
+```
+
+The model server should accept the same JSON payload and return a JSON object containing `recommendations`, `explain`, and optional `model`/`source` fields.
+
+## Connect SS928 To The Cloud LLM Interface
+
+On the SS928 service environment, set:
+
+```bash
+SMART_WARDROBE_LLM_ENABLED=true
+SMART_WARDROBE_LLM_URL=http://YOUR_SERVER_IP/api/llm/recommend
+SMART_WARDROBE_LLM_API_KEY=your-long-random-write-key
+SMART_WARDROBE_LLM_TIMEOUT=6
+```
+
+Then restart the board service. Existing `/api/recommendations` calls will try the cloud LLM first and automatically fall back to the local rule recommender if the cloud endpoint is unavailable.
+
 ## Connect The Mobile App
 
 Create a frontend `.env.production` in the project root:

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import pathlib
+import os
 import tempfile
 import unittest
 
 from app.core import (
     CloudPreprocessor,
+    LLMRecommendationClient,
     RecommendationEngine,
     WardrobeDB,
     color_family,
@@ -106,6 +108,20 @@ class WardrobeCoreTest(unittest.TestCase):
         self.assertEqual(data["box_2d"], [10, 20, 800, 900])
         self.assertEqual(processor._normalized_box([10, 20, 800, 900]), [10, 20, 800, 900])
         self.assertEqual(processor._normalized_box([9, 8, 10, 11]), [0, 0, 1000, 1000])
+
+    def test_llm_recommender_disabled_falls_back_to_local_result(self):
+        old_enabled = os.environ.pop("SMART_WARDROBE_LLM_ENABLED", None)
+        old_url = os.environ.pop("SMART_WARDROBE_LLM_URL", None)
+        self.addCleanup(lambda: os.environ.__setitem__("SMART_WARDROBE_LLM_ENABLED", old_enabled) if old_enabled is not None else None)
+        self.addCleanup(lambda: os.environ.__setitem__("SMART_WARDROBE_LLM_URL", old_url) if old_url is not None else None)
+        local = {
+            "weather": {"temperature_c": 22.0},
+            "occasion": "school",
+            "recommendations": [{"score": 1, "items": [], "reason": []}],
+        }
+        result = LLMRecommendationClient().recommend([], local["weather"], "school", local)
+        self.assertEqual(result["llm"]["status"], "disabled")
+        self.assertEqual(result["recommendations"], local["recommendations"])
 
 
 if __name__ == "__main__":

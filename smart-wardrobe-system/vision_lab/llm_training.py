@@ -40,6 +40,16 @@ DEFAULT_WEATHER_SCENARIOS = [
 
 DEFAULT_OCCASIONS = ["school", "commute", "casual", "sport", "formal"]
 
+POLYVORE_CATEGORY_MAP = {
+    "tops": "top",
+    "bottoms": "bottom",
+    "shoes": "shoes",
+    "outerwear": "outer",
+    "bags": "accessory",
+    "accessories": "accessory",
+    "all-body": "dress",
+}
+
 
 @dataclass
 class TrainingBundle:
@@ -171,6 +181,142 @@ def make_chat_example(prompt: str, answer: Dict[str, Any]) -> Dict[str, Any]:
             {"role": "assistant", "content": json.dumps(answer, ensure_ascii=False)},
         ]
     }
+
+
+def make_polyvore_completion_prompt(
+    known_items: Sequence[Dict[str, Any]],
+    candidate_items: Sequence[Dict[str, Any]],
+) -> str:
+    payload = {
+        "task": "complete_outfit",
+        "known_outfit": [compact_item(item) for item in known_items],
+        "candidate_items": [compact_item(item) for item in candidate_items],
+        "instruction": "从 candidate_items 中选择最适合补全 known_outfit 的单品，只能选择候选列表中存在的单品。",
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def make_polyvore_completion_answer(
+    known_items: Sequence[Dict[str, Any]],
+    selected_item: Dict[str, Any],
+    confidence: float = 0.82,
+) -> Dict[str, Any]:
+    outfit = [compact_item(item) for item in known_items] + [compact_item(selected_item)]
+    known_categories = [str(item.get("category") or "") for item in known_items if item.get("category")]
+    selected_category = str(selected_item.get("category") or "")
+    reasons = [
+        "该单品来自真实 Polyvore 搭配组合，和当前已选单品存在搭配兼容关系。",
+        "候选单品的类别为 %s，可补全当前搭配中的空缺位置。" % (selected_category or "unknown"),
+    ]
+    if known_categories:
+        reasons.append("当前搭配已包含 %s，选择该单品后形成更完整的 outfit。" % "、".join(known_categories[:5]))
+    return {
+        "selected_item": compact_item(selected_item),
+        "outfit": outfit,
+        "reason": reasons,
+        "missing_categories": [],
+        "confidence": confidence,
+    }
+
+
+def normalize_polyvore_item(item_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    semantic = str(metadata.get("semantic_category") or "").strip()
+    name = (
+        str(metadata.get("title") or "").strip()
+        or str(metadata.get("url_name") or "").strip()
+        or "polyvore item %s" % item_id
+    )
+    category = POLYVORE_CATEGORY_MAP.get(semantic, semantic or "unknown")
+    return {
+        "id": str(item_id),
+        "name": name[:120],
+        "category": category,
+        "polyvore_category": str(metadata.get("catgeories") or metadata.get("categories") or ""),
+        "semantic_category": semantic,
+        "description": str(metadata.get("description") or "")[:240],
+    }
+
+
+def load_polyvore_metadata(path: pathlib.Path) -> Dict[str, Dict[str, Any]]:
+    data = read_json(path)
+    if not isinstance(data, dict):
+        raise ValueError("polyvore metadata must be a JSON object")
+    return {str(key): value for key, value in data.items() if isinstance(value, dict)}
+
+
+def build_polyvore_item_index(
+    outfit_rows: Sequence[Dict[str, Any]],
+    metadata: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    indexed: Dict[str, Dict[str, Any]] = {}
+    for outfit in outfit_rows:
+        set_id = str(outfit.get("set_id") or "")
+        for entry in outfit.get("items") or []:
+            if not isinstance(entry, dict):
+                continue
+            item_id = str(entry.get("item_id") or "")
+            index = str(entry.get("index") or "")
+            if not set_id or not item_id or not index:
+                continue
+            meta = metadata.get(item_id, {})
+            indexed["%s_%s" % (set_id, index)] = normalize_polyvore_item(item_id, meta)
+    return indexed
+
+
+def build_polyvore_sft_examples(
+    fill_in_blank_rows: Sequence[Dict[str, Any]],
+    item_index: Dict[str, Dict[str, Any]],
+    max_examples: int = 0,
+) -> List[Dict[str, Any]]:
+    examples = []
+    for row in fill_in_blank_rows:
+        known = [item_index[token] for token in row.get("question") or [] if token in item_index]
+        candidates = [item_index[token] for token in row.get("answers") or [] if token in item_index]
+        if not known or len(candidates) < 2:
+            continue
+        selected = candidates[0]
+        prompt = make_polyvore_completion_prompt(known, candidates)
+        answer = make_polyvore_completion_answer(known, selected)
+        examples.append(make_chat_example(prompt, answer))
+        if max_examples and len(examples) >= max_examples:
+            break
+    return examples
+
+
+def build_polyvore_preference_pairs(
+    fill_in_blank_rows: Sequence[Dict[str, Any]],
+    item_index: Dict[str, Dict[str, Any]],
+    max_pairs: int = 0,
+) -> List[Dict[str, Any]]:
+    pairs = []
+    for row in fill_in_blank_rows:
+        known = [item_index[token] for token in row.get("question") or [] if token in item_index]
+        candidates = [item_index[token] for token in row.get("answers") or [] if token in item_index]
+        if not known or len(candidates) < 2:
+            continue
+        prompt = make_polyvore_completion_prompt(known, candidates)
+        chosen_answer = make_polyvore_completion_answer(known, candidates[0], confidence=0.84)
+        for rejected_item in candidates[1:]:
+            rejected_answer = make_polyvore_completion_answer(known, rejected_item, confidence=0.38)
+            rejected_answer["reason"] = [
+                "该候选是 fill-in-the-blank 负样本，相比正确答案与当前搭配的兼容性更弱。"
+            ]
+            pairs.append(
+                {
+                    "prompt": prompt,
+                    "chosen": json.dumps(chosen_answer, ensure_ascii=False),
+                    "rejected": json.dumps(rejected_answer, ensure_ascii=False),
+                    "metadata": {
+                        "source": "polyvore_fill_in_blank",
+                        "blank_position": row.get("blank_position"),
+                        "chosen_item_id": candidates[0].get("id"),
+                        "rejected_item_id": rejected_item.get("id"),
+                    },
+                }
+            )
+            if max_pairs and len(pairs) >= max_pairs:
+                return pairs
+    return pairs
 
 
 def build_sft_examples(

@@ -109,11 +109,19 @@ python smart-wardrobe-system\vision_lab\train_on_board.py --dataset smart-wardro
 
 ## 2.2 大模型训练代码（默认不调用）
 
-仓库现在提供两段离线训练准备代码，但板端服务、前端和启动脚本都不会自动调用它们：
+仓库现在提供离线训练准备和 LoRA 训练代码，但板端服务、前端和启动脚本都不会自动调用它们：
 
 - `llm_training.py`：公共训练数据构建函数。
 - `train_llm_model.py`：生成基础穿搭推荐大模型 SFT 数据。
 - `train_user_preference_llm.py`：根据用户喜爱分或反馈事件生成继续训练数据。
+- `prepare_polyvore_llm_dataset.py`：把 Polyvore Outfits 转成 SFT/DPO 训练文件。
+- `llm_trainer.py`：基于 `transformers + PEFT + TRL` 的 LoRA SFT/DPO 训练入口。
+
+训练依赖只建议安装在电脑或 GPU 训练机上，不建议装到 SS928 板端：
+
+```powershell
+pip install -r smart-wardrobe-system\vision_lab\llm_requirements.txt
+```
 
 基础穿搭大模型训练数据：
 
@@ -146,6 +154,76 @@ smart-wardrobe-system\vision_lab\llm_training_runs
 ```
 
 这个目录已加入 `.gitignore`，避免误提交用户数据、训练样本和模型产物。
+
+如果要真正启动 LoRA SFT 训练，增加 `--run-training`。第一次建议先 dry-run 验证文件格式：
+
+```powershell
+python smart-wardrobe-system\vision_lab\train_llm_model.py --run-training --dry-run
+```
+
+在 GPU 训练机上启动训练示例：
+
+```powershell
+python smart-wardrobe-system\vision_lab\train_llm_model.py `
+  --base-model Qwen/Qwen2.5-7B-Instruct `
+  --run-training `
+  --load-in-4bit `
+  --bf16
+```
+
+根据用户偏好继续训练时，默认使用 DPO；也可以改为继续 SFT：
+
+```powershell
+python smart-wardrobe-system\vision_lab\train_user_preference_llm.py `
+  --feedback user_feedback.jsonl `
+  --training-method dpo `
+  --run-training `
+  --dry-run
+```
+
+## 2.3 Polyvore Outfits 转换为大模型训练集
+
+如果项目根目录存在 `data\polyvore-outfits`，可以先把 Polyvore 的 fill-in-the-blank 数据转成两类训练文件：
+
+- `polyvore_outfit_sft_train.jsonl`：输入已有单品和候选单品，学习选择正确补全项。
+- `polyvore_outfit_dpo_train.jsonl`：正确候选作为 chosen，干扰候选作为 rejected，适合偏好对齐。
+
+推荐数据集地址：https://huggingface.co/datasets/mvasil/polyvore-outfits
+
+推荐先用 `disjoint` 划分，它更能测试模型对未见过单品的泛化能力：
+
+```powershell
+python smart-wardrobe-system\vision_lab\prepare_polyvore_llm_dataset.py `
+  --polyvore-root data\polyvore-outfits `
+  --split disjoint `
+  --subset train `
+  --max-sft-examples 20000 `
+  --max-dpo-pairs 50000
+```
+
+转换后用通用训练器启动 SFT：
+
+```powershell
+python smart-wardrobe-system\vision_lab\llm_trainer.py `
+  --mode sft `
+  --train-file smart-wardrobe-system\vision_lab\llm_training_runs\polyvore_xxx\polyvore_outfit_sft_train.jsonl `
+  --output-dir smart-wardrobe-system\vision_lab\llm_training_runs\polyvore_xxx\sft_adapter `
+  --base-model Qwen/Qwen2.5-7B-Instruct `
+  --load-in-4bit `
+  --bf16
+```
+
+再用 DPO 做搭配偏好继续训练：
+
+```powershell
+python smart-wardrobe-system\vision_lab\llm_trainer.py `
+  --mode dpo `
+  --train-file smart-wardrobe-system\vision_lab\llm_training_runs\polyvore_xxx\polyvore_outfit_dpo_train.jsonl `
+  --output-dir smart-wardrobe-system\vision_lab\llm_training_runs\polyvore_xxx\dpo_adapter `
+  --base-model Qwen/Qwen2.5-7B-Instruct `
+  --load-in-4bit `
+  --bf16
+```
 
 ## 3. 从板子同步已入库样本
 

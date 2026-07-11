@@ -22,6 +22,7 @@ from .core import (
     CloudPreprocessor,
     CloudSyncClient,
     ImageAnalyzer,
+    LLMRecommendationClient,
     RecommendationEngine,
     WardrobeDB,
     WeatherClient,
@@ -49,6 +50,7 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
     cloud_sync: CloudSyncClient
     analyzer: ImageAnalyzer
     recommender: RecommendationEngine
+    llm_recommender: LLMRecommendationClient
     taobao: TaobaoResolver
 
     server_version = "SmartWardrobeHTTP/1.0"
@@ -107,6 +109,8 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                 self.serve_camera_stream()
             elif path == "/api/vision/cloud/status":
                 self.send_json({"cloud": self.cloud_preprocessor.status()})
+            elif path == "/api/llm/status":
+                self.send_json({"llm": self.llm_recommender.status()})
             elif path == "/api/ws63/latest":
                 latest_path = DATA_ROOT / "ws63_latest.json"
                 if not latest_path.exists():
@@ -117,8 +121,12 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                 city = query.get("city", [os.environ.get("SMART_WARDROBE_CITY", "Hangzhou")])[0]
                 occasion = query.get("occasion", ["school"])[0]
                 weather = self.weather.current_weather(city)
-                result = self.recommender.recommend(
-                    self.db.list_clothes(), weather, occasion=occasion, limit=3
+                clothes = self.db.list_clothes()
+                local_result = self.recommender.recommend(
+                    clothes, weather, occasion=occasion, limit=3
+                )
+                result = self.llm_recommender.recommend(
+                    clothes, weather, occasion=occasion, local_result=local_result
                 )
                 self.send_json(result)
             elif path.startswith("/uploads/"):
@@ -254,6 +262,26 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                     items = [item for item in items if str(item.get("id")) in requested]
                 prune_stale = bool(payload.get("prune_stale", full_sync)) if full_sync else False
                 self.send_json(self.cloud_sync.sync_items(items, prune_stale=prune_stale))
+            elif path == "/api/llm/recommend":
+                payload = self.read_json(allow_empty=True)
+                city = str(payload.get("city") or os.environ.get("SMART_WARDROBE_CITY", "Hangzhou"))
+                occasion = str(payload.get("occasion") or "school")
+                weather = payload.get("weather") if isinstance(payload.get("weather"), dict) else self.weather.current_weather(city)
+                clothes = payload.get("wardrobe") if isinstance(payload.get("wardrobe"), list) else self.db.list_clothes()
+                local_result = payload.get("local_recommendation")
+                if not isinstance(local_result, dict):
+                    local_result = self.recommender.recommend(
+                        clothes, weather, occasion=occasion, limit=int(payload.get("limit") or 3)
+                    )
+                user_preferences = payload.get("user_preferences") if isinstance(payload.get("user_preferences"), dict) else {}
+                result = self.llm_recommender.recommend(
+                    clothes,
+                    weather,
+                    occasion=occasion,
+                    local_result=local_result,
+                    user_preferences=user_preferences,
+                )
+                self.send_json(result)
             elif path == "/api/ws63/sensor":
                 payload = self.read_json()
                 saved = save_ws63_payload(DATA_ROOT / "ws63_latest.json", payload)
@@ -547,6 +575,7 @@ class SmartWardrobeHandler(BaseHTTPRequestHandler):
                 "mode": "cloud_subject_crop_plus_edge_model",
                 "cloud": self.cloud_preprocessor.status(),
             },
+            "llm": self.llm_recommender.status(),
         }
 
 
@@ -559,6 +588,7 @@ def make_handler(db_path: pathlib.Path, camera_device: str) -> type[SmartWardrob
     SmartWardrobeHandler.cloud_sync = CloudSyncClient()
     SmartWardrobeHandler.analyzer = ImageAnalyzer()
     SmartWardrobeHandler.recommender = RecommendationEngine()
+    SmartWardrobeHandler.llm_recommender = LLMRecommendationClient()
     SmartWardrobeHandler.taobao = TaobaoResolver()
     return SmartWardrobeHandler
 
