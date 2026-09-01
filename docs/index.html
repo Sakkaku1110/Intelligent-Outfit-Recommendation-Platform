@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="智能衣柜推荐系统演示：衣物录入、衣柜管理与天气场景驱动的可解释穿搭推荐。"
+    />
+    <meta property="og:title" content="智能衣柜推荐系统｜演示视频" />
+    <meta property="og:description" content="基于 SS928、WS63 与多传感器的智能衣柜演示原型。" />
+    <meta property="og:image" content="assets/system-architecture.jpg" />
+    <title>智能衣柜推荐系统｜演示视频</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #18344f;
+        --muted: #607080;
+        --accent: #168f87;
+        --accent-dark: #0f6e69;
+        --line: #dbe5e9;
+        --surface: rgba(255, 255, 255, 0.93);
+        --soft: #f4f8f8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        background:
+          radial-gradient(circle at 15% 5%, rgba(22, 143, 135, 0.17), transparent 31rem),
+          linear-gradient(180deg, #f7fbfb 0%, #eef4f5 100%);
+      }
+
+      main {
+        width: min(1080px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 54px 0 48px;
+      }
+
+      header {
+        display: grid;
+        gap: 18px;
+        margin-bottom: 28px;
+      }
+
+      .eyebrow {
+        width: fit-content;
+        padding: 7px 12px;
+        border: 1px solid rgba(22, 143, 135, 0.3);
+        border-radius: 999px;
+        color: var(--accent-dark);
+        background: rgba(255, 255, 255, 0.7);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      h1 {
+        max-width: 820px;
+        margin: 0;
+        font-size: clamp(34px, 6vw, 62px);
+        line-height: 1.08;
+        letter-spacing: -0.04em;
+      }
+
+      .lead {
+        max-width: 760px;
+        margin: 0;
+        color: var(--muted);
+        font-size: clamp(17px, 2.2vw, 21px);
+        line-height: 1.75;
+      }
+
+      .player-card {
+        overflow: hidden;
+        border: 1px solid rgba(24, 52, 79, 0.1);
+        border-radius: 24px;
+        background: #0a1118;
+        box-shadow: 0 24px 70px rgba(20, 48, 64, 0.16);
+      }
+
+      video {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: contain;
+        background: #0a1118;
+      }
+
+      .fallback {
+        margin: 0;
+        padding: 13px 18px;
+        color: #d9e4e7;
+        background: #111c25;
+        font-size: 14px;
+        text-align: center;
+      }
+
+      .fallback a {
+        color: #85ded7;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 18px;
+        margin-top: 20px;
+      }
+
+      .card {
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--surface);
+      }
+
+      .card h2 {
+        margin: 0 0 13px;
+        font-size: 20px;
+      }
+
+      .card p,
+      .card li {
+        color: var(--muted);
+        line-height: 1.75;
+      }
+
+      .card p {
+        margin: 0;
+      }
+
+      .card ul {
+        margin: 0;
+        padding-left: 1.2em;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 46px;
+        padding: 0 18px;
+        border: 1px solid var(--accent);
+        border-radius: 12px;
+        color: #fff;
+        background: var(--accent);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .button:hover {
+        background: var(--accent-dark);
+      }
+
+      .button.secondary {
+        color: var(--accent-dark);
+        background: transparent;
+      }
+
+      footer {
+        margin-top: 30px;
+        color: #788691;
+        font-size: 13px;
+        text-align: center;
+      }
+
+      @media (max-width: 760px) {
+        main {
+          width: min(100% - 20px, 1080px);
+          padding-top: 30px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .card {
+          padding: 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="eyebrow">项目演示原视频 · 03:00</span>
+        <h1>智能衣柜推荐系统</h1>
+        <p class="lead">
+          基于 SS928 边缘端、WS63 传感器节点与移动端应用，实现衣物拍照录入、人工审核、衣柜管理，以及天气和场景驱动的可解释穿搭推荐。
+        </p>
+      </header>
+
+      <section class="player-card" aria-label="智能衣柜推荐系统演示视频">
+        <video controls playsinline preload="metadata" poster="assets/system-architecture.jpg">
+          <source src="assets/smart-wardrobe-demo.mp4" type="video/mp4" />
+          当前浏览器不支持 HTML5 视频播放。
+        </video>
+        <p class="fallback">
+          若播放器未正常加载，可<a href="assets/smart-wardrobe-demo.mp4">直接打开或下载原视频</a>。
+        </p>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>演示内容</h2>
+          <ul>
+            <li>衣物拍照采集、识别草稿与人工审核入库</li>
+            <li>真实衣柜数据的浏览、筛选、编辑与云端同步</li>
+            <li>基于天气、场景、偏好和衣物属性的穿搭推荐</li>
+            <li>WS63 与 AS7341 光谱数据对材质判断的辅助</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h2>项目边界</h2>
+          <p>
+            当前项目是可演示的 MVP 原型。推荐采用规则打分与轻量特征匹配；视觉识别样本规模较小，因此入库流程保留人工审核与修正。
+          </p>
+          <div class="actions">
+            <a class="button" href="https://github.com/Sakkaku1110/Intelligent-Outfit-Recommendation-Platform">查看 GitHub 项目</a>
+            <a class="button secondary" href="assets/system-architecture.jpg">查看系统架构</a>
+          </div>
+        </article>
+      </section>
+
+      <footer>
+        全国大学生嵌入式芯片与系统设计竞赛 · 分赛区三等奖
+      </footer>
+    </main>
+  </body>
+</html>
